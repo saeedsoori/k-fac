@@ -234,8 +234,8 @@ def train(epoch):
             v_mat = torch.linalg.inv(NGD_kernel + damp * torch.eye(args.batch_size, device = args.device))
             v = torch.sum(v_mat, dim=0)/args.batch_size
             loss_per_sample = criterion_none(outputs, targets)
-            if epoch > 2:
-              v = torch.ones(args.batch_size)/args.batch_size
+            # if epoch > 2:
+            #   v = torch.ones(args.batch_size)/args.batch_size
             loss_ = torch.sum(loss_per_sample * v)
 
             loss_.backward()
