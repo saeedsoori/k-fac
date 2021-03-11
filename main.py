@@ -57,6 +57,7 @@ parser.add_argument('--TInv', default=100, type=int)
 parser.add_argument('--eps', default=0.25, type=float)
 parser.add_argument('--boost', default=1.001, type=float)
 parser.add_argument('--drop', default=0.99, type=float)
+parser.add_argument('--adaptive', default='false', type=str)
 
 
 parser.add_argument('--prefix', default=None, type=str)
@@ -247,7 +248,9 @@ def train(epoch):
             for name, param in net.named_parameters():
                 grad_new.append(param.grad.reshape(-1, 1))
             grad_new = torch.cat(grad_new, dim=0)
-            
+
+            # print(torch.sum(grad_new * grad_flat * 10))
+            # print(torch.sum(grad_flat * grad_flat))
             # GGp = torch.matmul(NGD_kernel, v)
             # GGp_norm = torch.sum(GGp * GGp)
             # vg_sum += lr * lr * (GGp_norm + args.weight_decay * torch.sum(grad_new * grad_new))
@@ -271,8 +274,7 @@ def train(epoch):
             # with torch.no_grad():
             loss = torch.mean(loss_per_sample)
             # update damping (skip the first iteration):
-            if 1 > 2 and (epoch > 0  or batch_idx >  0) :
-
+            if args.adaptive == 'true' and (epoch > 0  or batch_idx >  0) :
               # if batch_idx % 100 == 0:
               #   print(torch.eig(v_mat))
               # 
@@ -280,7 +282,7 @@ def train(epoch):
               gp = - torch.sum(grad_new * grad_flat)
               GGp = torch.matmul(args.batch_size * NGD_kernel, v)
               GGp_norm = 0.5 *  torch.sum(GGp * GGp) / args.batch_size
-              lr = lr_scheduler.get_last_lr()[0]
+              # lr = lr_scheduler.get_last_lr()[0]
               approx = loss_prev + gp + GGp_norm
               # approx = loss_prev + lr * gp + lr * lr * GGp_norm
               # approx =  loss_prev + lr * gp 
@@ -293,11 +295,11 @@ def train(epoch):
               # ro = (loss.item() - loss_prev)/gp
 
               # print('loss prev:',loss.item())
-              print('loss_prev:',loss_prev)
-              print('loss now :',loss.item())
-              print('approx:',approx)
-              print('ro:', ro)
-              epsilon = 10
+              # print('loss_prev:',loss_prev)
+              # print('loss now :',loss.item())
+              # print('approx:',approx)
+              # print('ro:', ro)
+              # epsilon = 10
               if ro < epsilon:
                 alpha_LM = alpha_LM * boost
               elif ro > 1 - epsilon:

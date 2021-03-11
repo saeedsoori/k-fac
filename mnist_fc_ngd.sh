@@ -1,1 +1,1 @@
-python main.py --network fc --dataset mnist --device cpu --optimizer ngd  --epoch 7 --learning_rate 0.1 --damping 0.3 --weight_decay 0.003 --boost 1.001 --drop 0.99 --milestone 2,3 --batch_size 128 --eps .25 --boost 1.001 --drop 0.99
+python main.py --network fc --dataset mnist --device cpu --optimizer ngd  --epoch 7 --learning_rate 0.1 --damping 0.3 --weight_decay 0.003 --boost 1.001 --drop 0.99 --milestone 2,3 --batch_size 128 --adaptive true --eps .25 --boost 1.001 --drop 0.99
