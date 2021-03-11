@@ -17,11 +17,6 @@ from backpack import backpack, extend
 from backpack.extensions import Fisher
 import math
 
-# fixing HTTPS issue on Colab
-from six.moves import urllib
-opener = urllib.request.build_opener()
-opener.addheaders = [('User-agent', 'Mozilla/5.0')]
-urllib.request.install_opener(opener)
 
 # fetch args
 parser = argparse.ArgumentParser()
@@ -236,7 +231,7 @@ def train(epoch):
 
             JJT_opt, JJT_linear, JJT_conv, grad_flat = optimal_JJT(outputs, targets, args.batch_size)
             NGD_kernel = JJT_opt
-            v_mat = torch.linalg.inv(NGD_kernel + damp * torch.eye(args.batch_size))
+            v_mat = torch.linalg.inv(NGD_kernel + damp * torch.eye(args.batch_size, device = args.device))
             v = torch.sum(v_mat, dim=0)/args.batch_size
             loss_per_sample = criterion_none(outputs, targets)
             if epoch > 2:
