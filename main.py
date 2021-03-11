@@ -16,6 +16,7 @@ from torchsummary import summary
 from backpack import backpack, extend
 from backpack.extensions import Fisher
 import math
+import time
 
 
 # fetch args
@@ -188,6 +189,7 @@ def train(epoch):
     # if epoch == 3:
       # damp = damp /10;
     print('\nDamping: %f' % damp)
+    st_time = time.time()
 
 
 
@@ -316,11 +318,11 @@ def train(epoch):
         _, predicted = outputs.max(1)
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
-
         desc = ('[%s][LR=%s] Loss: %.3f | Acc: %.3f%% (%d/%d)' %
                 (tag, lr_scheduler.get_last_lr()[0], train_loss / (batch_idx + 1), 100. * correct / total, correct, total))
         prog_bar.set_description(desc, refresh=True)
-
+        if batch_idx % 10 == 0:
+          print(time.time() - st_time, loss.item(),  100. * correct / total)
     writer.add_scalar('train/loss', train_loss/(batch_idx + 1), epoch)
     writer.add_scalar('train/acc', 100. * correct / total, epoch)
     damping = damp
