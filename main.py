@@ -17,6 +17,12 @@ from backpack import backpack, extend
 from backpack.extensions import Fisher
 import math
 
+# fixing HTTPS issue on Colab
+from six.moves import urllib
+opener = urllib.request.build_opener()
+opener.addheaders = [('User-agent', 'Mozilla/5.0')]
+urllib.request.install_opener(opener)
+
 # fetch args
 parser = argparse.ArgumentParser()
 
