@@ -321,8 +321,8 @@ def train(epoch):
         desc = ('[%s][LR=%s] Loss: %.3f | Acc: %.3f%% (%d/%d)' %
                 (tag, lr_scheduler.get_last_lr()[0], train_loss / (batch_idx + 1), 100. * correct / total, correct, total))
         prog_bar.set_description(desc, refresh=True)
-        if batch_idx % 10 == 0:
-          print(time.time() - st_time, loss.item(),  100. * correct / total)
+        # if batch_idx % 10 == 0:
+        #   print(time.time() - st_time, loss.item(),  100. * correct / total)
     writer.add_scalar('train/loss', train_loss/(batch_idx + 1), epoch)
     writer.add_scalar('train/acc', 100. * correct / total, epoch)
     damping = damp
