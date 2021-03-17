@@ -29,15 +29,9 @@ class FC(nn.Module):
         #     nn.ReLU(),
         #     nn.Linear(100, 100),
         #     nn.ReLU(),
+        #     nn.Linear(100, 100),
+        #     nn.ReLU(),
         #     nn.Linear(100, 10)
-        # )
-        # self.features = nn.Sequential(
-        #     nn.Flatten(), 
-        #     nn.Linear(28*28, 10),
-        #     nn.ReLU(),
-        #     nn.Linear(10, 10),
-        #     nn.ReLU(),
-        #     nn.Linear(10, 10)
         # )
 
     def forward(self, x):

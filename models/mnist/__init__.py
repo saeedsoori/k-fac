@@ -4,8 +4,10 @@ from __future__ import absolute_import
 architectures:
 
 -  `convnet:3C3D`_
-- 'FC: 6D'
+- 'fc: 6D'
+- 'bn'
 """
 
 from .convnet import *
 from .fc import *
+from .bn import *

@@ -158,7 +158,6 @@ class KFACOptimizer(optim.Optimizer):
         for group in self.param_groups:
             weight_decay = group['weight_decay']
             momentum = group['momentum']
-
             for p in group['params']:
                 if p.grad is None:
                     continue
