@@ -251,7 +251,7 @@ def train(epoch):
                     sampled_y = torch.multinomial(torch.nn.functional.softmax(outputs, dim=1),1).squeeze().to(args.device)
             if batch_idx % args.freq == 0:
                 NGD_kernel, vjp = optimal_JJT(outputs, sampled_y, args.batch_size)
-                NGD_inv = torch.linalg.inv(NGD_kernel + damp * torch.eye(args.batch_size))
+                NGD_inv = torch.linalg.inv(NGD_kernel + damp * torch.eye(args.batch_size)).to(args.device)
                 # e, Vec = torch.symeig(NGD_kernel + damp * torch.eye(args.batch_size), eigenvectors=True)
                 v = torch.matmul(NGD_inv, vjp.unsqueeze(1)).squeeze()
                 ####### rescale v:
