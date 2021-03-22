@@ -25,18 +25,16 @@ class ConvNet(nn.Module):
         # )
         super(ConvNet, self).__init__()
         self.features = nn.Sequential(
-            nn.Conv2d(1, 8, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(1, 10, kernel_size=3, stride=1, padding=1),
+            # nn.BatchNorm2d(10),
             nn.ReLU(),
-            nn.Conv2d(8, 8, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(10, 10, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Conv2d(8, 8, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(10, 1, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
             nn.Flatten(), 
-            nn.Linear(28*28*8, 40),
-            nn.ReLU(),
-            nn.Linear(40, 100),
-            nn.ReLU(),
-            nn.Linear(100, 10)         
+            nn.Linear(28*28*1, 10),
+        
         )
 
     def forward(self, x):

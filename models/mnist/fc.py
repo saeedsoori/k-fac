@@ -27,10 +27,6 @@ class FC(nn.Module):
         #     nn.Flatten(), 
         #     nn.Linear(28*28, 100),
         #     nn.ReLU(),
-        #     nn.Linear(100, 100),
-        #     nn.ReLU(),
-        #     nn.Linear(100, 100),
-        #     nn.ReLU(),
         #     nn.Linear(100, 10)
         # )
 

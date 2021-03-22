@@ -1,1 +1,1 @@
-python main.py --network convnet --dataset mnist --device cpu --optimizer ngd  --epoch 5 --learning_rate 0.01 --damping 150 --weight_decay 0.003 
+python main.py --network convnet --dataset mnist --device cpu --optimizer ngd  --epoch 5 --learning_rate 0.1  --freq 1 --adaptive false --kl_clip 0.001 --alpha 0.2 --taw 0.1 --weight_decay 0.003 --momentum 0.0 --boost 1.01 --drop 0.99

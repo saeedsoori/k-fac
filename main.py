@@ -182,15 +182,20 @@ if not os.path.isdir(log_dir):
     os.makedirs(log_dir)
 writer = SummaryWriter(log_dir)
 
+loss_prev = 0.
+taylor_appx_prev = 0.
 
+non_descent = 0
 def train(epoch):
     print('\nEpoch: %d' % epoch)
     global alpha_LM
+    global loss_prev
+    global taylor_appx_prev
+    global non_descent
     net.train()
     train_loss = 0
     correct = 0
     total = 0
-    loss_prev = 0
     print('\nKFAC damping: %f' % damping)
     print('\nNGD damping: %f' % (alpha_LM + taw))
     st_time = time.time()
@@ -223,100 +228,113 @@ def train(epoch):
                 optimizer.acc_stats = False
                 optimizer.zero_grad()  # clear the gradient for computing true-fisher.
             loss.backward()
-            # grad_new =[]
-            # for name, param in net.named_parameters():
-            #     grad_new.append(param.grad.reshape(-1, 1))
-            # grad_new = torch.cat(grad_new, dim=0)
-            # print('max min:', torch.max(grad_new), torch.min(grad_new))
             optimizer.step()
 
 
         elif optim_name == 'ngd':
-            # print('damping:::::', damping)
+            
             damp = alpha_LM + taw
+            loss = criterion(outputs, targets)
+            loss.backward(retain_graph=True)
+            loss_org = loss.item()
+
+            # storing original gradient for later use
+            grad_org = []
+            grad_dict = {}
+            for name, param in net.named_parameters():
+                grad_org.append(param.grad.reshape(1, -1))
+                grad_dict[name] = param.grad.clone()
+            grad_org = torch.cat(grad_org, 1)
+
+            ###### now we have to compute the true fisher
             with torch.no_grad():
-                    # xx = torch.nn.functional.softmax(outputs, dim=1)
-                    # print(xx)
                     sampled_y = torch.multinomial(torch.nn.functional.softmax(outputs, dim=1),1).squeeze().to(args.device)
-                    # print(sampled_y)
             if batch_idx % args.freq == 0:
-                JJT_opt, JJT_linear, JJT_conv, JJT_bn, grad_flat = optimal_JJT(outputs, sampled_y, args.batch_size)
-                # E = ( JJT_bn)
-                # E = ( JJT_linear + JJT_bn)
-                # E = (JJT_conv + JJT_bn)
-                NGD_kernel = JJT_opt
+                NGD_kernel, vjp = optimal_JJT(outputs, sampled_y, args.batch_size)
+                NGD_inv = torch.linalg.inv(NGD_kernel + damp * torch.eye(args.batch_size))
+                # e, Vec = torch.symeig(NGD_kernel + damp * torch.eye(args.batch_size), eigenvectors=True)
+                v = torch.matmul(NGD_inv, vjp.unsqueeze(1)).squeeze()
+                ####### rescale v:
+                v_sc = v/(args.batch_size)
+           
+            ###### applying one step for optimization
+            optimizer.zero_grad()
+            loss = criterion_none(outputs, sampled_y)
+            loss = torch.sum(loss * v_sc)
+            loss.backward()
 
-                # print(torch.norm(JJT_opt - E)/torch.norm(JJT_opt))
-                # fig, ax = plt.subplots()
-                # im = ax.imshow(JJT_opt , cmap='viridis')
-                # fig.colorbar(im,  orientation='horizontal')
-                # plt.show()
-                
-                # print(JJT_opt)
-                # print('E:', E)
-
-                v_mat = torch.linalg.inv(NGD_kernel + damp * torch.eye(args.batch_size, device = args.device))
-                v = torch.sum(v_mat, dim=0)/args.batch_size
-            # print(v)
-            # if batch_idx % 100 == 0:
-            #   # print(torch.eig(NGD_kernel))
-            #   print(NGD_kernel)
-              # print(torch.norm(NGD_kernel)/args.batch_size)
-            # A = NGD_kernel + damp * torch.eye(args.batch_size, device = args.device)
-            # B = torch.ones(args.batch_size, 1)/args.batch_size
-            # v, _ = torch.solve(B, A)
-            # v = v.squeeze()
-            loss_per_sample = criterion_none(outputs, targets)
-            loss_ = torch.sum(loss_per_sample * v)
-            loss_.backward()
-
-
+            # last part of SMW formula
             grad_new = []
             for name, param in net.named_parameters():
-                grad_new.append(param.grad.reshape(-1, 1))
-            grad_new = torch.cat(grad_new, dim=0)
-      
-            optimizer.step() 
-            loss = torch.mean(loss_per_sample)
+                param.grad = (grad_dict[name] -  param.grad) / damp
+                #### uncomment next line to test only original gradient
+                # param.grad =  grad_dict[name] 
+                grad_new.append(param.grad.reshape(1, -1))
+            grad_new = torch.cat(grad_new, 1)   
+            
+            # rhs = torch.sum(grad_org * grad_org)
+            # lhs = torch.sum(v_sc * vjp)
+            # descent = (-rhs + lhs)/damp
+            
+            # if descent > 0 :
+            #     print('descent:', descent)
+            #     print('rhs:', rhs)
+            #     print('lhs:', lhs)
+            #     print(torch.eig(NGD_kernel + damp * torch.eye(args.batch_size)))
+            #     non_descent += 1
+            #     grad_new = []
+            #     for name, param in net.named_parameters():
+            #         param.grad =  grad_dict[name] 
+            #         grad_new.append(param.grad.reshape(1, -1))
+            #     grad_new = torch.cat(grad_new, 1) 
+
+            ##### do kl clip
+            lr = lr_scheduler.get_last_lr()[0]
+            vg_sum = 0
+            vg_sum += (grad_new * grad_org ).sum().item()
+            # print((grad_org * grad_org).sum().item())
+            # print(vg_sum)
+            vg_sum = vg_sum * (lr ** 2)
+            nu = min(1.0, math.sqrt(args.kl_clip / vg_sum))
+            
+            # if batch_idx > 400:
+            #   alpha_LM = 0.1
+            for name, param in net.named_parameters():
+                param.grad = param.grad * nu
+
+            optimizer.step()
+
+            # print(non_descent)
+
             # update damping (skip the first iteration):
-            if args.adaptive == 'true' and (epoch > 0  or batch_idx >  0) :
-              # if batch_idx % 100 == 0:
-              #   print(torch.eig(v_mat))
-              # 
-              # 
-              gp = - torch.sum(grad_new * grad_flat)
-              GGp = torch.matmul(args.batch_size * NGD_kernel, v)
-              GGp_norm = 0.5 *  torch.sum(GGp * GGp) / args.batch_size
+            if args.adaptive == 'true':
+              gp = - torch.sum(grad_new * grad_org)
+              x = (vjp -  torch.matmul(NGD_kernel, v) )/ math.sqrt(args.batch_size)
+              x = x / damp
+              pBp = 0.5 * torch.sum(x * x)
               lr = lr_scheduler.get_last_lr()[0]
-              # approx = loss_prev + gp + GGp_norm
-              approx = loss_prev + lr * gp + lr * lr * GGp_norm
-              # approx =  loss_prev + lr * gp 
-              # ro = (loss_prev - loss.item())/(loss_prev - approx)
-              # with torch.no_grad():
-              #   outputs = net(inputs)
-              #   loss_sample = criterion(outputs, targets)
-              # ro = (loss.item() - loss_sample.item())/(loss.item() -  approx)
-              ro = (loss_prev - loss.item())/(loss_prev -  approx)
-              # ro = (loss.item() - loss_prev)/gp
+              taylor_appx = loss_org + lr *  gp + lr * lr * pBp
+              # taylor_appx = loss_org + gp + pBp
 
-              # print('loss_prev:',loss_prev)
-              # print('loss now :',loss.item())
-              # print('approx:',approx)
-              # print('ro:', ro)
-              # print(alpha_LM)
+              if epoch > 0  or batch_idx > 0:
+                  ro =  (loss_org - loss_prev)/ (loss_org - taylor_appx_prev)
+                  # print(ro)
+                  # print(alpha_LM + taw)
 
-              # epsilon = 10
-              if ro < epsilon:
-                alpha_LM = alpha_LM * boost
-              elif ro > 1 - epsilon:
-                alpha_LM = alpha_LM * drop
-              else:
-                alpha_LM = alpha_LM
+                  if ro < epsilon:
+                    alpha_LM = alpha_LM * boost
+                  elif ro > 1 - epsilon:
+                    alpha_LM = alpha_LM * drop
+                  else:
+                    alpha_LM = alpha_LM
 
+              taylor_appx_prev = taylor_appx
+              loss_prev = loss_org
+        if optim_name == 'ngd':
+          train_loss += loss_org
+        else:
+          train_loss += loss.item()
 
-            loss_prev = loss.item()
-
-        train_loss += loss.item()
         _, predicted = outputs.max(1)
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
@@ -378,38 +396,21 @@ def test(epoch):
         best_acc = acc
 
 def optimal_JJT(outputs, targets, batch_size):
+
     jac_list = 0
-    jac_list_linear = 0
-    jac_list_conv = 0
-    jac_list_bn = 0
-    all_grads = []
+    vjp = 0
     with backpack(Fisher()):
-        loss = criterion(outputs, targets)
-        loss.backward(retain_graph=True)
+        loss_ = criterion(outputs, targets)
+        loss_.backward(retain_graph=True)
+        
     for name, param in net.named_parameters():
         fisher_vals = param.fisher
-        jac_list += fisher_vals
-        all_grads.append(param.grad.reshape(-1, 1))
-        if 'bn' in name:
-          jac_list_bn += fisher_vals
-        elif 'conv' in name or 'downsample' in name:
-          jac_list_conv += fisher_vals
-        elif 'fc' in name:
-          jac_list_linear += fisher_vals
-
-        param.grad = None
+        jac_list += fisher_vals[0]
+        vjp += fisher_vals[1]
         param.fisher = None
 
-    all_grads = torch.cat(all_grads, dim=0)
-    # print()
-
-
     JJT = jac_list / batch_size
-    JJT_linear = jac_list_linear / batch_size
-    JJT_conv = jac_list_conv / batch_size
-    JJT_bn = jac_list_bn / batch_size
-    return JJT, JJT_linear, JJT_conv, JJT_bn, all_grads
-
+    return JJT, vjp
 
 def main():
     for epoch in range(start_epoch, args.epoch):
