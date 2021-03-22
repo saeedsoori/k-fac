@@ -130,8 +130,12 @@ elif optim_name == 'ngd':
     print('NGD optimizer selected.')
     optimizer = optim.SGD(net.parameters(),
                           lr=args.learning_rate,
-                          momentum=args.momentum,
                           weight_decay=args.weight_decay)
+    buf = {}
+    if args.momentum != 0:
+        for name, param in net.named_parameters():
+                buf[name] = torch.zeros_like(param.data) 
+
 else:
     raise NotImplementedError
 
@@ -275,18 +279,6 @@ def train(epoch):
             # rhs = torch.sum(grad_org * grad_org)
             # lhs = torch.sum(v_sc * vjp)
             # descent = (-rhs + lhs)/damp
-            
-            # if descent > 0 :
-            #     print('descent:', descent)
-            #     print('rhs:', rhs)
-            #     print('lhs:', lhs)
-            #     print(torch.eig(NGD_kernel + damp * torch.eye(args.batch_size)))
-            #     non_descent += 1
-            #     grad_new = []
-            #     for name, param in net.named_parameters():
-            #         param.grad =  grad_dict[name] 
-            #         grad_new.append(param.grad.reshape(1, -1))
-            #     grad_new = torch.cat(grad_new, 1) 
 
             ##### do kl clip
             lr = lr_scheduler.get_last_lr()[0]
@@ -297,10 +289,13 @@ def train(epoch):
             vg_sum = vg_sum * (lr ** 2)
             nu = min(1.0, math.sqrt(args.kl_clip / vg_sum))
             
-            # if batch_idx > 400:
-            #   alpha_LM = 0.1
             for name, param in net.named_parameters():
                 param.grad = param.grad * nu
+
+            # apply momentum
+            if args.momentum != 0:
+              for name, param in net.named_parameters():
+                param.grad = args.momentum * buf[name] + param.grad
 
             optimizer.step()
 
