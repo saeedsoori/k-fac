@@ -37,6 +37,9 @@ def update_running_stat(aa, m_aa, stat_decay):
     m_aa += aa
     m_aa *= (1 - stat_decay)
 
+    print('m_aa:\n', m_aa)
+    print('stat_decay:\n', stat_decay)
+
 
 class ComputeMatGrad:
 
