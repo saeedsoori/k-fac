@@ -66,6 +66,7 @@ parser.add_argument('--adaptive', default='false', type=str)
 parser.add_argument('--alpha', default=0.1, type=float)
 parser.add_argument('--taw', default=0.01, type=float)
 parser.add_argument('--freq', default=10, type=int)
+parser.add_argument('--warmup', default=100, type=int)
 
 
 parser.add_argument('--prefix', default=None, type=str)
@@ -236,9 +237,7 @@ def train(epoch):
 
 
         elif optim_name == 'ngd':
-
-            if batch_idx % args.freq == 0:
-
+            if epoch == 0 and batch_idx < args.warmup:
                 inputs, targets = inputs.to(args.device), targets.to(args.device)
                 optimizer.zero_grad()
                 outputs = net(inputs)
@@ -246,123 +245,134 @@ def train(epoch):
                 loss = criterion(outputs, targets)
                 loss.backward(retain_graph=True)
                 loss_org = loss.item()
-
-                # storing original gradient for later use
-                grad_org = []
-                grad_dict = {}
-                for name, param in net.named_parameters():
-                    grad_org.append(param.grad.reshape(1, -1))
-                    grad_dict[name] = param.grad.clone()
-                grad_org = torch.cat(grad_org, 1)
-
-                ###### now we have to compute the true fisher
-                with torch.no_grad():
-                    sampled_y = torch.multinomial(torch.nn.functional.softmax(outputs, dim=1),1).squeeze().to(args.device)
-                NGD_kernel, fisher_vjp = optimal_JJT(outputs, sampled_y, args.batch_size)
-                # print(J.shape)
-                # vjp = torch.matmul(J, grad_org.t()).squeeze()
-                vjp = fisher_vjp
-                NGD_inv = torch.linalg.inv(NGD_kernel + damp * torch.eye(args.batch_size).to(args.device)).to(args.device)
-                v = torch.matmul(NGD_inv, vjp.unsqueeze(1)).squeeze()
-
-                #### original:
-                v_sc = v/(args.batch_size)
-                optimizer.zero_grad()
-                loss = criterion_none(outputs, sampled_y)
-                loss = torch.sum(loss * v_sc)
-                loss.backward()
-
-                fisher_JDJ = []
-                for name, param in net.named_parameters():
-                    fisher_JDJ.append(param.grad.reshape(1, -1))
-                fisher_JDJ = torch.cat(fisher_JDJ, 1)
-
-                ## accurate
-                # JDJ = torch.matmul(v.unsqueeze(1).t(), J) / (args.batch_size)
-                JDJ = fisher_JDJ
-                # print(torch.norm(JDJ - fisher_JDJ)/torch.norm(JDJ))
-
-                # store these for silent mode
-                silent_inputs = inputs.clone()
-                silent_sampled_y = sampled_y.clone()
-                silent_targets = targets.clone()
-                # silent_NGD_inv = NGD_inv
-                # silent_NGD = NGD_kernel
-                silent_net = copy.deepcopy(net)
-                silent_outputs = outputs.clone()
 
             else:
-                inputs, targets = inputs.to(args.device), targets.to(args.device)
-                optimizer.zero_grad()
-                outputs = net(inputs)
-                damp = alpha_LM + taw
-                loss = criterion(outputs, targets)
-                loss.backward(retain_graph=True)
-                loss_org = loss.item()
+                    if batch_idx % args.freq == 0:
+
+                        inputs, targets = inputs.to(args.device), targets.to(args.device)
+                        optimizer.zero_grad()
+                        outputs = net(inputs)
+                        damp = alpha_LM + taw
+                        loss = criterion(outputs, targets)
+                        loss.backward(retain_graph=True)
+                        loss_org = loss.item()
+
+                        # storing original gradient for later use
+                        grad_org = []
+                        grad_dict = {}
+                        for name, param in net.named_parameters():
+                            grad_org.append(param.grad.reshape(1, -1))
+                            grad_dict[name] = param.grad.clone()
+                        grad_org = torch.cat(grad_org, 1)
+
+                        ###### now we have to compute the true fisher
+                        with torch.no_grad():
+                            sampled_y = torch.multinomial(torch.nn.functional.softmax(outputs, dim=1),1).squeeze().to(args.device)
+                        NGD_kernel, fisher_vjp = optimal_JJT(outputs, sampled_y, args.batch_size)
+                        # print(J.shape)
+                        # vjp = torch.matmul(J, grad_org.t()).squeeze()
+                        vjp = fisher_vjp
+                        NGD_inv = torch.linalg.inv(NGD_kernel + damp * torch.eye(args.batch_size).to(args.device)).to(args.device)
+                        v = torch.matmul(NGD_inv, vjp.unsqueeze(1)).squeeze()
+
+                        #### original:
+                        v_sc = v/(args.batch_size)
+                        optimizer.zero_grad()
+                        loss = criterion_none(outputs, sampled_y)
+                        loss = torch.sum(loss * v_sc)
+                        loss.backward()
+
+                        fisher_JDJ = []
+                        for name, param in net.named_parameters():
+                            fisher_JDJ.append(param.grad.reshape(1, -1))
+                        fisher_JDJ = torch.cat(fisher_JDJ, 1)
+
+                        ## accurate
+                        # JDJ = torch.matmul(v.unsqueeze(1).t(), J) / (args.batch_size)
+                        JDJ = fisher_JDJ
+                        # print(torch.norm(JDJ - fisher_JDJ)/torch.norm(JDJ))
+
+                        # store these for silent mode
+                        silent_inputs = inputs.clone()
+                        silent_sampled_y = sampled_y.clone()
+                        silent_targets = targets.clone()
+                        # silent_NGD_inv = NGD_inv
+                        # silent_NGD = NGD_kernel
+                        silent_net = copy.deepcopy(net)
+                        silent_outputs = outputs.clone()
+
+                    else:
+                        inputs, targets = inputs.to(args.device), targets.to(args.device)
+                        optimizer.zero_grad()
+                        outputs = net(inputs)
+                        damp = alpha_LM + taw
+                        loss = criterion(outputs, targets)
+                        loss.backward(retain_graph=True)
+                        loss_org = loss.item()
 
 
-                # storing original gradient for later use
-                grad_org = []
-                grad_dict = {}
-                for name, param in net.named_parameters():
-                    grad_org.append(param.grad.reshape(1, -1))
-                    grad_dict[name] = param.grad.data.detach().clone()
-                grad_org = torch.cat(grad_org, 1)
-                #### original 
-                
-                silent_outputs = silent_net(silent_inputs)
-                for name, param in silent_net.named_parameters():
-                    param.grad = grad_dict[name].clone()
-                vjp = optimal_JJT(silent_outputs, silent_sampled_y, args.batch_size, silent=True, silent_net=silent_net)
-                
-                NGD_inv = torch.linalg.inv(NGD_kernel + damp * torch.eye(args.batch_size).to(args.device)).to(args.device)
-                v = torch.matmul(NGD_inv, vjp.unsqueeze(1)).squeeze()
+                        # storing original gradient for later use
+                        grad_org = []
+                        grad_dict = {}
+                        for name, param in net.named_parameters():
+                            grad_org.append(param.grad.reshape(1, -1))
+                            grad_dict[name] = param.grad.data.detach().clone()
+                        grad_org = torch.cat(grad_org, 1)
+                        #### original 
+                        
+                        silent_outputs = silent_net(silent_inputs)
+                        for name, param in silent_net.named_parameters():
+                            param.grad = grad_dict[name].clone()
+                        vjp = optimal_JJT(silent_outputs, silent_sampled_y, args.batch_size, silent=True, silent_net=silent_net)
+                        
+                        NGD_inv = torch.linalg.inv(NGD_kernel + damp * torch.eye(args.batch_size).to(args.device)).to(args.device)
+                        v = torch.matmul(NGD_inv, vjp.unsqueeze(1)).squeeze()
 
-                #### original:
-                v_sc = v / (args.batch_size)
-                for name, param in silent_net.named_parameters():
-                    param.grad = None
+                        #### original:
+                        v_sc = v / (args.batch_size)
+                        for name, param in silent_net.named_parameters():
+                            param.grad = None
 
-                loss = criterion_none(silent_outputs, silent_sampled_y)
-                loss = torch.sum(loss * v_sc)
-                loss.backward()
+                        loss = criterion_none(silent_outputs, silent_sampled_y)
+                        loss = torch.sum(loss * v_sc)
+                        loss.backward()
 
-                fisher_JDJ = []
-                for name, param in silent_net.named_parameters():
-                    fisher_JDJ.append(param.grad.reshape(1, -1))
-                fisher_JDJ = torch.cat(fisher_JDJ, 1)
+                        fisher_JDJ = []
+                        for name, param in silent_net.named_parameters():
+                            fisher_JDJ.append(param.grad.reshape(1, -1))
+                        fisher_JDJ = torch.cat(fisher_JDJ, 1)
 
-                JDJ = fisher_JDJ                
-            
+                        JDJ = fisher_JDJ                
+                    
 
-            # last part of SMW formula
-            grad_new = []
-            i = 0
-            for name, param in net.named_parameters():
-                n = grad_dict[name].numel()
-                p_grad = JDJ[0, i:i + n]
-                x = p_grad.view_as(grad_dict[name])
-                param.grad = (grad_dict[name].clone() -  x) / damp
-                #### uncomment next line to test only original gradient
-                # param.grad =  grad_dict[name] 
-                grad_new.append(param.grad.reshape(1, -1))
-                i = i + n
-            grad_new = torch.cat(grad_new, 1)   
-            
-            # descent = -torch.sum(grad_new * grad_org)
-            # print('descent:', descent)
+                    # last part of SMW formula
+                    grad_new = []
+                    i = 0
+                    for name, param in net.named_parameters():
+                        n = grad_dict[name].numel()
+                        p_grad = JDJ[0, i:i + n]
+                        x = p_grad.view_as(grad_dict[name])
+                        param.grad = (grad_dict[name].clone() -  x) / damp
+                        #### uncomment next line to test only original gradient
+                        # param.grad =  grad_dict[name] 
+                        grad_new.append(param.grad.reshape(1, -1))
+                        i = i + n
+                    grad_new = torch.cat(grad_new, 1)   
+                    
+                    # descent = -torch.sum(grad_new * grad_org)
+                    # print('descent:', descent)
 
-            ##### do kl clip
-            lr = lr_scheduler.get_last_lr()[0]
-            vg_sum = 0
-            vg_sum += (grad_new * grad_org ).sum()
-            # print((grad_org * grad_org).sum().item())
-            # print(vg_sum)
-            vg_sum = vg_sum * (lr ** 2)
-            nu = min(1.0, math.sqrt(args.kl_clip / vg_sum))
-            
-            for name, param in net.named_parameters():
-                param.grad = param.grad * nu
+                    ##### do kl clip
+                    lr = lr_scheduler.get_last_lr()[0]
+                    vg_sum = 0
+                    vg_sum += (grad_new * grad_org ).sum()
+                    # print((grad_org * grad_org).sum().item())
+                    # print(vg_sum)
+                    vg_sum = vg_sum * (lr ** 2)
+                    nu = min(1.0, math.sqrt(args.kl_clip / vg_sum))
+                    
+                    for name, param in net.named_parameters():
+                        param.grad = param.grad * nu
 
             # apply weight decay
             if args.weight_decay != 0:
