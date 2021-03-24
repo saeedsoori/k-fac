@@ -89,12 +89,12 @@ net = get_network(args.network,
 
 net = net.to(args.device)
 
-if args.dataset == 'mnist':
-    summary(net, ( 1, 28, 28))
-elif args.dataset == 'cifar10':
-    summary(net, ( 3, 32, 32))
-elif args.dataset == 'cifar100':
-    summary(net, ( 3, 32, 32))
+# if args.dataset == 'mnist':
+#     summary(net, ( 1, 28, 28))
+# elif args.dataset == 'cifar10':
+#     summary(net, ( 3, 32, 32))
+# elif args.dataset == 'cifar100':
+#     summary(net, ( 3, 32, 32))
 
 # init dataloader
 trainloader, testloader = get_dataloader(dataset=args.dataset,
