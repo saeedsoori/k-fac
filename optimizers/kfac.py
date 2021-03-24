@@ -67,7 +67,6 @@ class KFACOptimizer(optim.Optimizer):
             # Initialize buffers
             if self.steps == 0:
                 self.m_gg[module] = torch.diag(gg.new(gg.size(0)).fill_(1))
-                print(self.m_gg[module].shape)
             update_running_stat(gg, self.m_gg[module], self.stat_decay)
 
     def _prepare_model(self):

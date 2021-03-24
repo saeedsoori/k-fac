@@ -32,13 +32,13 @@ def _extract_patches(x, kernel_size, stride, padding):
 
 def update_running_stat(aa, m_aa, stat_decay):
     # using inplace operation to save memory!
-    print('update_running_stat')
+    # print('update_running_stat')
     m_aa *= stat_decay / (1 - stat_decay)
     m_aa += aa
     m_aa *= (1 - stat_decay)
 
-    print('m_aa:\n', m_aa)
-    print('stat_decay:\n', stat_decay)
+    # print('m_aa:\n', m_aa)
+    # print('stat_decay:\n', stat_decay)
 
 
 class ComputeMatGrad:
