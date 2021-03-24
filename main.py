@@ -153,7 +153,8 @@ else:
 criterion = nn.CrossEntropyLoss()
 criterion_none = nn.CrossEntropyLoss(reduction='none')
 
-if optim_name == 'ngd':
+if optim_name == 'ngd' and args.warmup == 0:
+    print('extension initiated.....\n')
     extend(net)
     extend(criterion)
     extend(criterion_none)
@@ -240,7 +241,6 @@ def train(epoch):
         elif optim_name == 'ngd':
 
             if epoch == 0 and batch_idx < args.warmup:
-                print('warmup')
                 inputs, targets = inputs.to(args.device), targets.to(args.device)
                 optimizer.zero_grad()
                 outputs = net(inputs)
@@ -250,10 +250,7 @@ def train(epoch):
                 loss_org = loss.item()
 
             else:
-                    print(' no warmup')
                     if batch_idx % args.freq == 0:
-                        print(' inner loop')
-
                         inputs, targets = inputs.to(args.device), targets.to(args.device)
                         optimizer.zero_grad()
                         outputs = net(inputs)
@@ -380,7 +377,6 @@ def train(epoch):
                         param.grad = param.grad * nu
 
             for name, param in net.named_parameters():
-                print('name:', name)
                 d_p = param.grad.data
                 # apply weight decay
                 if args.weight_decay != 0:
