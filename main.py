@@ -132,8 +132,12 @@ elif optim_name == 'ekfac':
                                TInv=args.TInv)
 elif optim_name == 'ngd':
     print('NGD optimizer selected.')
+    # optimizer = optim.SGD(net.parameters(),
+    #                       lr=args.learning_rate)
     optimizer = optim.SGD(net.parameters(),
-                          lr=args.learning_rate)
+                          lr=args.learning_rate,
+                          momentum=args.momentum,
+                          weight_decay=args.weight_decay)
     buf = {}
     if args.momentum != 0:
         for name, param in net.named_parameters():
@@ -246,7 +250,7 @@ def train(epoch):
                 outputs = net(inputs)
                 damp = alpha_LM + taw
                 loss = criterion(outputs, targets)
-                loss.backward()
+                loss.backward(retain_graph=True)
                 loss_org = loss.item()
 
             else:
@@ -376,20 +380,20 @@ def train(epoch):
                     for name, param in net.named_parameters():
                         param.grad = param.grad * nu
 
-            for name, param in net.named_parameters():
-                d_p = param.grad.data
-                # apply weight decay
-                if args.weight_decay != 0:
-                    d_p += args.weight_decay * param.data
+            # for name, param in net.named_parameters():
+            #     d_p = param.grad.data
+            #     # apply weight decay
+            #     if args.weight_decay != 0:
+            #         d_p += args.weight_decay * param.data
 
-                # apply momentum
-                if args.momentum != 0:
-                    d_p += args.momentum * buf[name]
+            #     # apply momentum
+            #     if args.momentum != 0:
+            #         d_p += args.momentum * buf[name]
 
-                lr = lr_scheduler.get_last_lr()[0]
-                param.data = param.data - lr * d_p
+            #     lr = lr_scheduler.get_last_lr()[0]
+            #     param.data = param.data - lr * d_p
 
-            # optimizer.step()
+            optimizer.step()
 
             # print(non_descent)
 
