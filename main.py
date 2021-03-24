@@ -246,7 +246,7 @@ def train(epoch):
 
             if epoch == 0 and batch_idx < args.warmup:
                 inputs, targets = inputs.to(args.device), targets.to(args.device)
-                optimizer.zero_grad()
+                net.zero_grad()
                 outputs = net(inputs)
                 damp = alpha_LM + taw
                 loss = criterion(outputs, targets)
