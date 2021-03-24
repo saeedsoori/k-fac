@@ -380,20 +380,21 @@ def train(epoch):
                     for name, param in net.named_parameters():
                         param.grad = param.grad * nu
 
-            # for name, param in net.named_parameters():
-            #     d_p = param.grad.data
-            #     # apply weight decay
-            #     if args.weight_decay != 0:
-            #         d_p += args.weight_decay * param.data
+            with torch.no_grad():
+                for name, param in net.named_parameters():
+                    d_p = param.grad.data
+                    # apply weight decay
+                    if args.weight_decay != 0:
+                        d_p += args.weight_decay * param.data
 
-            #     # apply momentum
-            #     if args.momentum != 0:
-            #         d_p += args.momentum * buf[name]
+                    # apply momentum
+                    if args.momentum != 0:
+                        d_p += args.momentum * buf[name]
 
-            #     lr = lr_scheduler.get_last_lr()[0]
-            #     param.data = param.data - lr * d_p
+                    lr = lr_scheduler.get_last_lr()[0]
+                    param.data = param.data - lr * d_p
 
-            optimizer.step()
+            # optimizer.step()
 
             # print(non_descent)
 
