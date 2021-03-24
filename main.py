@@ -89,12 +89,12 @@ net = get_network(args.network,
 
 net = net.to(args.device)
 
-# if args.dataset == 'mnist':
-#     summary(net, ( 1, 28, 28))
-# elif args.dataset == 'cifar10':
-#     summary(net, ( 3, 32, 32))
-# elif args.dataset == 'cifar100':
-#     summary(net, ( 3, 32, 32))
+if args.dataset == 'mnist':
+    summary(net, ( 1, 28, 28))
+elif args.dataset == 'cifar10':
+    summary(net, ( 3, 32, 32))
+elif args.dataset == 'cifar100':
+    summary(net, ( 3, 32, 32))
 
 # init dataloader
 trainloader, testloader = get_dataloader(dataset=args.dataset,
@@ -238,7 +238,9 @@ def train(epoch):
 
 
         elif optim_name == 'ngd':
+
             if epoch == 0 and batch_idx < args.warmup:
+                print('warmup')
                 inputs, targets = inputs.to(args.device), targets.to(args.device)
                 optimizer.zero_grad()
                 outputs = net(inputs)
@@ -248,7 +250,10 @@ def train(epoch):
                 loss_org = loss.item()
 
             else:
+                print(' no warmup')
+
                     if batch_idx % args.freq == 0:
+                        print(' inner loop')
 
                         inputs, targets = inputs.to(args.device), targets.to(args.device)
                         optimizer.zero_grad()
@@ -376,6 +381,7 @@ def train(epoch):
                         param.grad = param.grad * nu
 
             for name, param in net.named_parameters():
+                print('name:', name)
                 d_p = param.grad.data
                 # apply weight decay
                 if args.weight_decay != 0:
