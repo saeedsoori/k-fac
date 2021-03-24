@@ -157,8 +157,7 @@ else:
 criterion = nn.CrossEntropyLoss()
 criterion_none = nn.CrossEntropyLoss(reduction='none')
 
-if optim_name == 'ngd' and args.warmup == 0:
-    print('extension initiated.....\n')
+if optim_name == 'ngd':
     extend(net)
     extend(criterion)
     extend(criterion_none)
