@@ -1,5 +1,5 @@
 from models.cifar import (alexnet, densenet, resnet,
-                          vgg16_bn, vgg19_bn,
+                          vgg16_bn, vgg19_bn, vgg16, vgg13,
                           wrn)
 from models.mnist import (fc, convnet, bn)
 
@@ -14,6 +14,8 @@ def get_network(network, **kwargs):
         'resnet': resnet,
         'vgg16_bn': vgg16_bn,
         'vgg19_bn': vgg19_bn,
+        'vgg16': vgg16,
+        'vgg13': vgg13,
         'wrn': wrn
 
     }
