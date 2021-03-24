@@ -389,7 +389,9 @@ def train(epoch):
 
                     # apply momentum
                     if args.momentum != 0:
-                        d_p += args.momentum * buf[name]
+                        buf[name] = args.momentum * buf[name] + d_p
+                        d_p = buf[name]
+
 
                     lr = lr_scheduler.get_last_lr()[0]
                     param.data = param.data - lr * d_p
