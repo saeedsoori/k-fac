@@ -132,8 +132,8 @@ elif optim_name == 'ekfac':
                                TInv=args.TInv)
 elif optim_name == 'ngd':
     print('NGD optimizer selected.')
-    # optimizer = optim.SGD(net.parameters(),
-    #                       lr=args.learning_rate)
+    optimizer = optim.SGD(net.parameters(),
+                          lr=args.learning_rate)
     # optimizer = optim.SGD(net.parameters(),
     #                       lr=args.learning_rate,
     #                       momentum=args.momentum,
@@ -246,7 +246,7 @@ def train(epoch):
 
             if epoch == 0 and batch_idx < args.warmup:
                 inputs, targets = inputs.to(args.device), targets.to(args.device)
-                net.zero_grad()
+                optimizer.zero_grad()
                 outputs = net(inputs)
                 damp = alpha_LM + taw
                 loss = criterion(outputs, targets)
@@ -256,7 +256,7 @@ def train(epoch):
             else:
                     if batch_idx % args.freq == 0:
                         inputs, targets = inputs.to(args.device), targets.to(args.device)
-                        net.zero_grad()
+                        optimizer.zero_grad()
                         outputs = net(inputs)
                         damp = alpha_LM + taw
                         loss = criterion(outputs, targets)
@@ -283,7 +283,7 @@ def train(epoch):
 
                         #### original:
                         v_sc = v/(args.batch_size)
-                        net.zero_grad()
+                        optimizer.zero_grad()
                         loss = criterion_none(outputs, sampled_y)
                         loss = torch.sum(loss * v_sc)
                         loss.backward()
@@ -309,7 +309,7 @@ def train(epoch):
 
                     else:
                         inputs, targets = inputs.to(args.device), targets.to(args.device)
-                        net.zero_grad()
+                        optimizer.zero_grad()
                         outputs = net(inputs)
                         damp = alpha_LM + taw
                         loss = criterion(outputs, targets)
