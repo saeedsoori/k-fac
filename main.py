@@ -374,17 +374,20 @@ def train(epoch):
                     for name, param in net.named_parameters():
                         param.grad = param.grad * nu
 
-            # apply weight decay
-            if args.weight_decay != 0:
-              for name, param in net.named_parameters():
-                param.grad += args.weight_decay * param.data
+            for name, param in net.named_parameters():
+                d_p = param.grad.data
+                # apply weight decay
+                if args.weight_decay != 0:
+                    d_p += args.weight_decay * param.data
 
-            # apply momentum
-            if args.momentum != 0:
-              for name, param in net.named_parameters():
-                param.grad = args.momentum * buf[name] + param.grad
+                # apply momentum
+                if args.momentum != 0:
+                    d_p += args.momentum * buf[name]
 
-            optimizer.step()
+                lr = lr_scheduler.get_last_lr()[0]
+                param.data = param.data - lr * d_p
+
+            # optimizer.step()
 
             # print(non_descent)
 
