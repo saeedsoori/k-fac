@@ -137,7 +137,8 @@ elif optim_name == 'ngd':
     buf = {}
     if args.momentum != 0:
         for name, param in net.named_parameters():
-                buf[name] = torch.zeros_like(param.data) 
+                print('initializing momentum buffer')
+                buf[name] = torch.zeros_like(param.data).to(args.device) 
 
 else:
     raise NotImplementedError
