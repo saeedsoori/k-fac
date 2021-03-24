@@ -250,8 +250,7 @@ def train(epoch):
                 loss_org = loss.item()
 
             else:
-                print(' no warmup')
-
+                    print(' no warmup')
                     if batch_idx % args.freq == 0:
                         print(' inner loop')
 
