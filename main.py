@@ -134,14 +134,14 @@ elif optim_name == 'ngd':
     print('NGD optimizer selected.')
     # optimizer = optim.SGD(net.parameters(),
     #                       lr=args.learning_rate)
-    optimizer = optim.SGD(net.parameters(),
-                          lr=args.learning_rate,
-                          momentum=args.momentum,
-                          weight_decay=args.weight_decay)
+    # optimizer = optim.SGD(net.parameters(),
+    #                       lr=args.learning_rate,
+    #                       momentum=args.momentum,
+    #                       weight_decay=args.weight_decay)
     buf = {}
     if args.momentum != 0:
         for name, param in net.named_parameters():
-                print('initializing momentum buffer')
+                # print('initializing momentum buffer')
                 buf[name] = torch.zeros_like(param.data).to(args.device) 
 
 else:
@@ -256,7 +256,7 @@ def train(epoch):
             else:
                     if batch_idx % args.freq == 0:
                         inputs, targets = inputs.to(args.device), targets.to(args.device)
-                        optimizer.zero_grad()
+                        net.zero_grad()
                         outputs = net(inputs)
                         damp = alpha_LM + taw
                         loss = criterion(outputs, targets)
@@ -283,7 +283,7 @@ def train(epoch):
 
                         #### original:
                         v_sc = v/(args.batch_size)
-                        optimizer.zero_grad()
+                        net.zero_grad()
                         loss = criterion_none(outputs, sampled_y)
                         loss = torch.sum(loss * v_sc)
                         loss.backward()
@@ -309,7 +309,7 @@ def train(epoch):
 
                     else:
                         inputs, targets = inputs.to(args.device), targets.to(args.device)
-                        optimizer.zero_grad()
+                        net.zero_grad()
                         outputs = net(inputs)
                         damp = alpha_LM + taw
                         loss = criterion(outputs, targets)
