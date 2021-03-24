@@ -246,7 +246,7 @@ def train(epoch):
                 outputs = net(inputs)
                 damp = alpha_LM + taw
                 loss = criterion(outputs, targets)
-                loss.backward(retain_graph=True)
+                loss.backward()
                 loss_org = loss.item()
 
             else:
