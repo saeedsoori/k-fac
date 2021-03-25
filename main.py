@@ -174,7 +174,7 @@ if optim_name == 'ngd':
     extend(net_copy, keep_memory=True)
     extend(criterion)
     extend(criterion_none)
-    print(net.state_dict())
+    # print(net.state_dict())
 
 
 # parameters for damping update
@@ -219,6 +219,7 @@ def train(epoch):
     global taylor_appx_prev
     global non_descent
     net.train()
+    net_copy.train()
     train_loss = 0
     correct = 0
     total = 0
@@ -381,6 +382,7 @@ def train(epoch):
                             param.grad.copy_(grad_dict[name].clone())
 
                         vjp = optimal_JJT(silent_outputs_copy, silent_sampled_y, args.batch_size, silent=True, silent_net=net_copy)
+                        # vjp = torch.ones_like(vjp)
                         # print('*'*100)
                         # print(torch.norm(vjp_copy - vjp))
                         # print('AAAAAAAAA\n')
@@ -452,7 +454,7 @@ def train(epoch):
                     # print(vg_sum)
                     vg_sum = vg_sum * (lr ** 2)
                     nu = min(1.0, math.sqrt(args.kl_clip / vg_sum))
-                    
+                    # nu = 1
                     for name, param in net.named_parameters():
                         param.grad.mul_(nu)
 
