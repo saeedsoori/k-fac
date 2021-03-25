@@ -219,7 +219,8 @@ def train(epoch):
     global taylor_appx_prev
     global non_descent
     net.train()
-    net_copy.train()
+    if optim_name == 'ngd':
+        net_copy.train()
     train_loss = 0
     correct = 0
     total = 0
