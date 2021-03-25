@@ -89,6 +89,9 @@ net = get_network(args.network,
 
 net = net.to(args.device)
 
+
+
+
 if args.dataset == 'mnist':
     summary(net, ( 1, 28, 28))
 elif args.dataset == 'cifar10':
@@ -134,6 +137,15 @@ elif optim_name == 'ngd':
     print('NGD optimizer selected.')
     optimizer = optim.SGD(net.parameters(),
                           lr=args.learning_rate)
+
+    net_copy = get_network(args.network,
+                  depth=args.depth,
+                  num_classes=num_classes,
+                  growthRate=args.growthRate,
+                  compressionRate=args.compressionRate,
+                  widen_factor=args.widen_factor,
+                  dropRate=args.dropRate)
+    net_copy = net_copy.to(args.device)
     # optimizer = optim.SGD(net.parameters(),
     #                       lr=args.learning_rate,
     #                       momentum=args.momentum,
@@ -159,8 +171,10 @@ criterion_none = nn.CrossEntropyLoss(reduction='none')
 
 if optim_name == 'ngd':
     extend(net)
+    extend(net_copy, keep_memory=True)
     extend(criterion)
     extend(criterion_none)
+    print(net.state_dict())
 
 
 # parameters for damping update
@@ -212,8 +226,6 @@ def train(epoch):
     print('\nNGD damping: %f' % (alpha_LM + taw))
     st_time = time.time()
 
-
-
     # 
     desc = ('[%s][LR=%s] Loss: %.3f | Acc: %.3f%% (%d/%d)' %
             (tag, lr_scheduler.get_last_lr()[0], 0, 0, correct, total))
@@ -256,7 +268,21 @@ def train(epoch):
                     if batch_idx % args.freq == 0:
                         inputs, targets = inputs.to(args.device), targets.to(args.device)
                         optimizer.zero_grad()
+                        # net.zero_grad()
+
                         outputs = net(inputs)
+
+                        # copy the network for later use:
+                        if epoch == 0 and batch_idx == 0:
+                            #FIXME: move this out of the loop
+                            # do this only one time to make all states equal
+                            _ = net_copy(inputs)
+                        net_copy.load_state_dict(net.state_dict())
+
+                        # outputs_copy = net(inputs)
+                        # print(torch.norm(outputs_copy - outputs))
+
+
                         damp = alpha_LM + taw
                         loss = criterion(outputs, targets)
                         loss.backward(retain_graph=True)
@@ -300,11 +326,13 @@ def train(epoch):
                         # store these for silent mode
                         silent_inputs = inputs.clone()
                         silent_sampled_y = sampled_y.clone()
-                        silent_targets = targets.clone()
+                        # silent_targets = targets.clone()
                         # silent_NGD_inv = NGD_inv
                         # silent_NGD = NGD_kernel
-                        silent_net = copy.deepcopy(net)
-                        silent_outputs = outputs.clone()
+                        # silent_net = copy.deepcopy(net)
+                        # silent_outputs = outputs.clone()
+                        # silent_outputs = None
+                        silent_outputs_copy = None
 
                     else:
                         inputs, targets = inputs.to(args.device), targets.to(args.device)
@@ -323,31 +351,80 @@ def train(epoch):
                             grad_org.append(param.grad.reshape(1, -1))
                             grad_dict[name] = param.grad.data.detach().clone()
                         grad_org = torch.cat(grad_org, 1)
+                        # print(grad_org.requires_grad)
                         #### original 
                         
-                        silent_outputs = silent_net(silent_inputs)
-                        for name, param in silent_net.named_parameters():
-                            param.grad = grad_dict[name].clone()
-                        vjp = optimal_JJT(silent_outputs, silent_sampled_y, args.batch_size, silent=True, silent_net=silent_net)
+                        if silent_outputs_copy == None:
+                            # print('RECOMPUTE')
+                            silent_outputs_copy = net_copy(silent_inputs)
+
+                        # if silent_outputs == None or 1 < 2:
+                            # silent_outputs = silent_net(silent_inputs)
+                            
+                            # print('x'*100)
+                            # print(torch.norm(silent_outputs_2 - silent_outputs))
                         
+                        
+
+
+
+                        # print(torch.norm(silent_outputs - prev_silent_outputs))
+                        # prev_silent_outputs = silent_outputs
+
+                        # for name, param in silent_net.named_parameters():
+                        #     param.grad = torch.zeros_like(param.data)
+                        #     param.grad.copy_(grad_dict[name].clone())
+                        # vjp = optimal_JJT(silent_outputs, silent_sampled_y, args.batch_size, silent=True, silent_net=silent_net)
+                        
+                        for name, param in net_copy.named_parameters():
+                            param.grad = torch.zeros_like(param.data)
+                            param.grad.copy_(grad_dict[name].clone())
+
+                        vjp = optimal_JJT(silent_outputs_copy, silent_sampled_y, args.batch_size, silent=True, silent_net=net_copy)
+                        # print('*'*100)
+                        # print(torch.norm(vjp_copy - vjp))
+                        # print('AAAAAAAAA\n')
+
+                        # for name, param in silent_net.named_parameters():
+                        #     print(param)
+
+
+
+
                         NGD_inv = torch.linalg.inv(NGD_kernel + damp * torch.eye(args.batch_size).to(args.device)).to(args.device)
                         v = torch.matmul(NGD_inv, vjp.unsqueeze(1)).squeeze()
 
                         #### original:
                         v_sc = v / (args.batch_size)
-                        for name, param in silent_net.named_parameters():
+                        # for name, param in silent_net.named_parameters():
+                        #     param.grad = None
+
+                        for name, param in net_copy.named_parameters():
                             param.grad = None
 
-                        loss = criterion_none(silent_outputs, silent_sampled_y)
-                        loss = torch.sum(loss * v_sc)
-                        loss.backward()
+                        # loss = criterion_none(silent_outputs, silent_sampled_y)
+                        # loss = torch.sum(loss * v_sc)
+                        # loss.backward(retain_graph=True)
 
-                        fisher_JDJ = []
-                        for name, param in silent_net.named_parameters():
-                            fisher_JDJ.append(param.grad.reshape(1, -1))
-                        fisher_JDJ = torch.cat(fisher_JDJ, 1)
+                        loss_copy = criterion_none(silent_outputs_copy, silent_sampled_y)
+                        loss_copy = torch.sum(loss_copy * v_sc)
+                        loss_copy.backward(retain_graph=True)
 
-                        JDJ = fisher_JDJ                
+                        # fisher_JDJ = []
+                        # for name, param in silent_net.named_parameters():
+                        #     fisher_JDJ.append(param.grad.reshape(1, -1))
+                        # fisher_JDJ = torch.cat(fisher_JDJ, 1)
+
+                        fisher_JDJ_copy = []
+                        for name, param in net_copy.named_parameters():
+                            fisher_JDJ_copy.append(param.grad.reshape(1, -1))
+                        fisher_JDJ_copy = torch.cat(fisher_JDJ_copy, 1)
+
+                        # print('*'*100)
+                        # print(torch.norm(fisher_JDJ_copy - fisher_JDJ))
+
+                        # JDJ = fisher_JDJ                
+                        JDJ = fisher_JDJ_copy                
                     
 
                     # last part of SMW formula
@@ -357,7 +434,7 @@ def train(epoch):
                         n = grad_dict[name].numel()
                         p_grad = JDJ[0, i:i + n]
                         x = p_grad.view_as(grad_dict[name])
-                        param.grad = (grad_dict[name].clone() -  x) / damp
+                        param.grad.copy_((grad_dict[name].clone() -  x) / damp)
                         #### uncomment next line to test only original gradient
                         # param.grad =  grad_dict[name] 
                         grad_new.append(param.grad.reshape(1, -1))
@@ -377,23 +454,23 @@ def train(epoch):
                     nu = min(1.0, math.sqrt(args.kl_clip / vg_sum))
                     
                     for name, param in net.named_parameters():
-                        param.grad = param.grad * nu
+                        param.grad.mul_(nu)
 
             with torch.no_grad():
                 for name, param in net.named_parameters():
                     d_p = param.grad.data
                     # apply weight decay
                     if args.weight_decay != 0:
-                        d_p += args.weight_decay * param.data
+                        d_p.add_(args.weight_decay, param.data)
 
                     # apply momentum
                     if args.momentum != 0:
-                        buf[name] = args.momentum * buf[name] + d_p
-                        d_p = buf[name]
+                        buf[name].mul_(args.momentum).add_(d_p)
+                        d_p.copy_(buf[name])
 
 
                     lr = lr_scheduler.get_last_lr()[0]
-                    param.data = param.data - lr * d_p
+                    param.data.add_(-lr, d_p)
 
             # optimizer.step()
 
@@ -427,7 +504,6 @@ def train(epoch):
           train_loss += loss_org
         else:
           train_loss += loss.item()
-
         _, predicted = outputs.max(1)
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
@@ -522,6 +598,25 @@ def optimal_JJT(outputs, targets, batch_size, silent=False, silent_net=None):
             vjp += fisher_vals
 
         return  vjp
+
+
+def memory_cleanup(module):
+    """Remove I/O stored by backpack during the forward pass.
+
+    Deletes the attributes created by `hook_store_io` and `hook_store_shapes`.
+    """
+    if hasattr(module, "output"):
+        delattr(module, "output")
+    if hasattr(module, "output_shape"):
+        delattr(module, "output_shape")
+    i = 0
+    while hasattr(module, "input{}".format(i)):
+        delattr(module, "input{}".format(i))
+        i += 1
+    i = 0
+    while hasattr(module, "input{}_shape".format(i)):
+        delattr(module, "input{}_shape".format(i))
+        i += 1
 
 
 def main():

@@ -328,9 +328,9 @@ def train(epoch):
             rhs = torch.sum(grad_org * grad_org)
             lhs = torch.sum(v_sc * vjp)
             descent = (-rhs + lhs)/damp
-            print('descent:', descent)
-            print('lhs:', lhs)
-            print('rhs:', rhs)
+            # print('descent:', descent)
+            # print('lhs:', lhs)
+            # print('rhs:', rhs)
             ##### do kl clip
             lr = lr_scheduler.get_last_lr()[0]
             vg_sum = 0
@@ -343,17 +343,20 @@ def train(epoch):
             for name, param in net.named_parameters():
                 param.grad = param.grad * nu
 
-            # apply weight decay
-            if args.weight_decay != 0:
-              for name, param in net.named_parameters():
-                param.grad += args.weight_decay * param.data
+            for name, param in net.named_parameters():
+                # apply weight decay
+                if args.weight_decay != 0:
+                    param.grad += args.weight_decay * param.data
 
-            # apply momentum
-            if args.momentum != 0:
-              for name, param in net.named_parameters():
-                param.grad = args.momentum * buf[name] + param.grad
+                # apply momentum
+                if args.momentum != 0:
+                    buf[name] = args.momentum * buf[name] + param.grad
+                    param.grad = buf[name]
 
-            optimizer.step()
+                lr = lr_scheduler.get_last_lr()[0]
+                param.data = param.data - lr * param.grad
+            # optimizer.zero_grad()
+            # optimizer.step()
 
             # print(non_descent)
 
