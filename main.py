@@ -66,7 +66,7 @@ parser.add_argument('--adaptive', default='false', type=str)
 parser.add_argument('--alpha', default=0.1, type=float)
 parser.add_argument('--taw', default=0.01, type=float)
 parser.add_argument('--freq', default=10, type=int)
-parser.add_argument('--warmup', default=100, type=int)
+parser.add_argument('--warmup', default=0, type=int)
 
 
 parser.add_argument('--prefix', default=None, type=str)
@@ -301,9 +301,9 @@ def train(epoch):
                         ###### now we have to compute the true fisher
                         with torch.no_grad():
                             sampled_y = torch.multinomial(torch.nn.functional.softmax(outputs, dim=1),1).squeeze().to(args.device)
+                            print(torch.sum((sampled_y - targets) != 0))
                         NGD_kernel, fisher_vjp = optimal_JJT(outputs, sampled_y, args.batch_size)
-                        # print(J.shape)
-                        # vjp = torch.matmul(J, grad_org.t()).squeeze()
+
                         vjp = fisher_vjp
                         NGD_inv = torch.linalg.inv(NGD_kernel + damp * torch.eye(args.batch_size).to(args.device)).to(args.device)
                         v = torch.matmul(NGD_inv, vjp.unsqueeze(1)).squeeze()
@@ -581,7 +581,7 @@ def optimal_JJT(outputs, targets, batch_size, silent=False, silent_net=None):
             jac_list += fisher_vals[0]
             vjp += fisher_vals[1]
             param.fisher = None
-            param.grad = None
+            # param.grad = None
 
         JJT = jac_list / batch_size
         return JJT, vjp
