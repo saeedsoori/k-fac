@@ -309,7 +309,7 @@ def train(epoch):
                 # gg = torch.nn.functional.softmax(outputs, dim=1)
                     # sampled_y = torch.multinomial(torch.nn.functional.softmax(outputs, dim=1),1).squeeze().to(args.device)
                 
-                for m in net.children():
+                for m in net.features.children():
                     if hasattr(m, "I"):
                         # print(m.weight.grad.shape)
                         # print(m.I.shape)
@@ -322,7 +322,7 @@ def train(epoch):
                         n = I.shape[0]
                         NGD_inv = m.NGD_inv
 
-                        # print(m.__class__)
+                        
                         if isinstance(m, nn.Linear):
                             grad_prod = einsum("ni,oi->no", (I, grad))
                             grad_prod = einsum("no,no->n", (grad_prod, G))
