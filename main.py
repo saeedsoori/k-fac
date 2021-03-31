@@ -353,6 +353,7 @@ def train(epoch):
                                 v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
                                 gv = einsum("n,nml->nml", (v, G))
                                 gv = einsum("nml,nkl->mk", (gv, I))
+                                gv = gv.view_as(grad)
                                 gv = gv / n
                                 update = (grad - gv)/damp
                                 m.weight.grad.copy_(update)
