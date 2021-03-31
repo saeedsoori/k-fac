@@ -55,6 +55,8 @@ class KFACOptimizer(optim.Optimizer):
     def _save_input(self, module, input):
         if torch.is_grad_enabled() and self.steps % self.TCov == 0:
             aa = self.CovAHandler(input[0].data, module)
+            # print('aa shape:', aa.shape)
+            # print('input[0].data[0]', input[0].data.shape)
             # Initialize buffers
             if self.steps == 0:
                 self.m_aa[module] = torch.diag(aa.new(aa.size(0)).fill_(1))
@@ -64,6 +66,8 @@ class KFACOptimizer(optim.Optimizer):
         # Accumulate statistics for Fisher matrices
         if self.acc_stats and self.steps % self.TCov == 0:
             gg = self.CovGHandler(grad_output[0].data, module, self.batch_averaged)
+            # print('gg shape:', gg.shape)
+            # print('grad_output[0]', grad_output[0].shape)
             # Initialize buffers
             if self.steps == 0:
                 self.m_gg[module] = torch.diag(gg.new(gg.size(0)).fill_(1))
@@ -120,6 +124,7 @@ class KFACOptimizer(optim.Optimizer):
         """
         # p_grad_mat is of output_dim * input_dim
         # inv((ss')) p_grad_mat inv(aa') = [ Q_g (1/R_g) Q_g^T ] @ p_grad_mat @ [Q_a (1/R_a) Q_a^T]
+        
         v1 = self.Q_g[m].t() @ p_grad_mat @ self.Q_a[m]
         v2 = v1 / (self.d_g[m].unsqueeze(1) * self.d_a[m].unsqueeze(0) + damping)
         v = self.Q_g[m] @ v2 @ self.Q_a[m].t()
