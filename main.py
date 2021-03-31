@@ -310,20 +310,13 @@ def train(epoch):
                     # sampled_y = torch.multinomial(torch.nn.functional.softmax(outputs, dim=1),1).squeeze().to(args.device)
                 
                 for m in net.features.children():
-                    if hasattr(m, "I"):
-                        # print(m.weight.grad.shape)
-                        # print(m.I.shape)
-                        I = m.I
-                        G = m.G
-                        # A = m.A
-                        # B = m.B
+                    if hasattr(m, "NGD_inv"):                    
                         grad = m.weight.grad
-                        # out = m.out
-                        n = I.shape[0]
-                        NGD_inv = m.NGD_inv
-
-                        
                         if isinstance(m, nn.Linear):
+                            I = m.I
+                            G = m.G
+                            n = I.shape[0]
+                            NGD_inv = m.NGD_inv
                             grad_prod = einsum("ni,oi->no", (I, grad))
                             grad_prod = einsum("no,no->n", (grad_prod, G))
                             v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
@@ -333,22 +326,36 @@ def train(epoch):
                             update = (grad - gv)/damp
                             m.weight.grad.copy_(update)
                         elif isinstance(m, nn.Conv2d):
-                            AX = m.AX
-                            grad_reshape = grad.reshape(grad.shape[0], -1)
-                            # x1 = einsum("nkl,mk->nml", (I, grad_reshape))
-                            # grad_prod = einsum("nml,nml->n", (x1, G))
-
-                            grad_prod = einsum("nkm,mk->n", (AX, grad_reshape))
-
-                            v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
-                            # gv = einsum("n,nml->nml", (v, G))
-                            # gv = einsum("nml,nkl->mk", (gv, I))
-                            gv = einsum("nkm,n->mk", (AX, v))
-
-                            gv = gv.view_as(grad)
-                            gv = gv / n
-                            update = (grad - gv)/damp
-                            m.weight.grad.copy_(update)
+                            if hasattr(m, "AX"): 
+                                AX = m.AX
+                                n = AX.shape[0]
+                                NGD_inv = m.NGD_inv
+                                grad_reshape = grad.reshape(grad.shape[0], -1)
+                                # x1 = einsum("nkl,mk->nml", (I, grad_reshape))
+                                # grad_prod = einsum("nml,nml->n", (x1, G))
+                                grad_prod = einsum("nkm,mk->n", (AX, grad_reshape))
+                                v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+                                # gv = einsum("n,nml->nml", (v, G))
+                                # gv = einsum("nml,nkl->mk", (gv, I))
+                                gv = einsum("nkm,n->mk", (AX, v))
+                                gv = gv.view_as(grad)
+                                gv = gv / n
+                                update = (grad - gv)/damp
+                                m.weight.grad.copy_(update)
+                            elif hasattr(m, "I"):
+                                I = m.I
+                                G = m.G
+                                n = I.shape[0]
+                                NGD_inv = m.NGD_inv
+                                grad_reshape = grad.reshape(grad.shape[0], -1)
+                                x1 = einsum("nkl,mk->nml", (I, grad_reshape))
+                                grad_prod = einsum("nml,nml->n", (x1, G))
+                                v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+                                gv = einsum("n,nml->nml", (v, G))
+                                gv = einsum("nml,nkl->mk", (gv, I))
+                                gv = gv / n
+                                update = (grad - gv)/damp
+                                m.weight.grad.copy_(update)
                         
                         
 
