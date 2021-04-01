@@ -68,6 +68,8 @@ parser.add_argument('--adaptive', default='false', type=str)
 parser.add_argument('--alpha', default=0.1, type=float)
 parser.add_argument('--taw', default=0.01, type=float)
 parser.add_argument('--freq', default=10, type=int)
+parser.add_argument('--low_rank', default='false', type=str)
+parser.add_argument('--gamma', default=0.95, type=float)
 
 
 parser.add_argument('--prefix', default=None, type=str)
@@ -272,7 +274,7 @@ def train(epoch):
                 # gg = torch.nn.functional.softmax(outputs, dim=1)
                     sampled_y = torch.multinomial(torch.nn.functional.softmax(outputs, dim=1),1).squeeze().to(args.device)
                 
-                update_list, loss = optimal_JJT(outputs, sampled_y, args.batch_size, damping=damp, alpha=0.95)
+                update_list, loss = optimal_JJT(outputs, sampled_y, args.batch_size, damping=damp, alpha=0.95, low_rank=args.low_rank, gamma=args.gamma)
                 # optimizer.zero_grad()
                 # update_list, loss = optimal_JJT_fused(outputs, sampled_y, args.batch_size, damping=damp)
 
@@ -326,22 +328,44 @@ def train(epoch):
                             update = (grad - gv)/damp
                             m.weight.grad.copy_(update)
                         elif isinstance(m, nn.Conv2d):
-                            if hasattr(m, "AX"): 
-                                AX = m.AX
-                                n = AX.shape[0]
-                                NGD_inv = m.NGD_inv
-                                grad_reshape = grad.reshape(grad.shape[0], -1)
-                                # x1 = einsum("nkl,mk->nml", (I, grad_reshape))
-                                # grad_prod = einsum("nml,nml->n", (x1, G))
-                                grad_prod = einsum("nkm,mk->n", (AX, grad_reshape))
-                                v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
-                                # gv = einsum("n,nml->nml", (v, G))
-                                # gv = einsum("nml,nkl->mk", (gv, I))
-                                gv = einsum("nkm,n->mk", (AX, v))
-                                gv = gv.view_as(grad)
-                                gv = gv / n
-                                update = (grad - gv)/damp
-                                m.weight.grad.copy_(update)
+                            if hasattr(m, "AX"):
+
+                                if args.low_rank.lower() == 'true':
+                                    # print('low_rank coomputations')
+                                    ###### testing low rank structure
+                                    U = m.U
+                                    S = m.S
+                                    V = m.V
+                                    NGD_inv = m.NGD_inv
+                                    n = NGD_inv.shape[0]
+
+                                    grad_reshape = grad.reshape(grad.shape[0], -1)
+                                    grad_prod = V.t() @ grad_reshape.t().reshape(-1, 1)
+                                    grad_prod = torch.diag(S) @ grad_prod
+                                    grad_prod = U @ grad_prod
+                                    grad_prod = grad_prod.squeeze()
+                                    v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+                                    gv= U.t() @ v.unsqueeze(1)
+                                    gv = torch.diag(S) @ gv
+                                    gv = V @ gv
+                                    gv = gv.reshape(grad_reshape.shape[1], grad_reshape.shape[0]).t()
+                                    gv = gv.view_as(grad)
+                                    gv = gv / n
+                                    update = (grad - gv)/damp
+                                    m.weight.grad.copy_(update)
+                                else:
+                                    AX = m.AX
+                                    NGD_inv = m.NGD_inv
+                                    n = AX.shape[0]
+
+                                    grad_reshape = grad.reshape(grad.shape[0], -1)
+                                    grad_prod = einsum("nkm,mk->n", (AX, grad_reshape))
+                                    v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+                                    gv = einsum("nkm,n->mk", (AX, v))
+                                    gv = gv.view_as(grad)
+                                    gv = gv / n
+                                    update = (grad - gv)/damp
+                                    m.weight.grad.copy_(update)
                             elif hasattr(m, "I"):
                                 I = m.I
                                 G = m.G
@@ -450,11 +474,11 @@ def test(epoch):
                                                      args.depth))
         best_acc = acc
 
-def optimal_JJT(outputs, targets, batch_size, damping=1.0, alpha=0.95):
+def optimal_JJT(outputs, targets, batch_size, damping=1.0, alpha=0.95, low_rank=False, gamma=0.95):
     jac_list = 0
     vjp = 0
     update_list = {}
-    with backpack(FisherBlock(damping, alpha)):
+    with backpack(FisherBlock(damping, alpha, low_rank, gamma)):
         loss = criterion(outputs, targets)
         loss.backward(retain_graph=True)
     for name, param in net.named_parameters():

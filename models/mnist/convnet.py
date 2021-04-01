@@ -26,7 +26,6 @@ class ConvNet(nn.Module):
         super(ConvNet, self).__init__()
         self.features = nn.Sequential(
             nn.Conv2d(1, 10, kernel_size=3, stride=1, padding=1),
-            # nn.BatchNorm2d(10),
             nn.ReLU(),
             nn.Conv2d(10, 10, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
