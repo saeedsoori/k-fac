@@ -474,7 +474,7 @@ def test(epoch):
                                                      args.depth))
         best_acc = acc
 
-def optimal_JJT(outputs, targets, batch_size, damping=1.0, alpha=0.95, low_rank=False, gamma=0.95):
+def optimal_JJT(outputs, targets, batch_size, damping=1.0, alpha=0.95, low_rank='false', gamma=0.95):
     jac_list = 0
     vjp = 0
     update_list = {}
