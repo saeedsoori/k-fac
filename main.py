@@ -70,6 +70,7 @@ parser.add_argument('--taw', default=0.01, type=float)
 parser.add_argument('--freq', default=10, type=int)
 parser.add_argument('--low_rank', default='false', type=str)
 parser.add_argument('--gamma', default=0.95, type=float)
+parser.add_argument('--batchnorm', default='false', type=str)
 
 
 parser.add_argument('--prefix', default=None, type=str)
@@ -394,6 +395,21 @@ def train(epoch):
                                 gv = gv / n
                                 update = (grad - gv)/damp
                                 m.weight.grad.copy_(update)
+                        elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm1d):
+                            if args.batchnorm == 'true':
+                                print('BN')
+                                dw = m.dw
+                                n = dw.shape[0]
+                                NGD_inv = m.NGD_inv
+                                grad_prod = einsum("ni,i->n", (dw, grad))
+
+                                v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+                                gv = einsum("n,ni->i", (v, dw))
+                                
+                                gv = gv / n
+                                update = (grad - gv)/damp
+                                m.weight.grad.copy_(update)
+                        
                         
                         
 
