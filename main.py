@@ -94,6 +94,15 @@ net = get_network(args.network,
 
 net = net.to(args.device)
 
+module_names = ''
+if hasattr(net, 'features'): 
+    module_names = 'features'
+elif hasattr(net, 'children'):
+    module_names = 'children'
+else:
+    print('unknown net modules...')
+
+
 
 
 
@@ -310,8 +319,12 @@ def train(epoch):
                 # with torch.no_grad():
                 # gg = torch.nn.functional.softmax(outputs, dim=1)
                     # sampled_y = torch.multinomial(torch.nn.functional.softmax(outputs, dim=1),1).squeeze().to(args.device)
-                
-                for m in net.features.children():
+                if module_names == 'children':
+                    all_modules = net.children()
+                elif module_names == 'features':
+                    all_modules = net.features.children()
+
+                for m in all_modules:
                     if hasattr(m, "NGD_inv"):                    
                         grad = m.weight.grad
                         if isinstance(m, nn.Linear):
