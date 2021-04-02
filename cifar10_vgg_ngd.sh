@@ -1,2 +1,1 @@
-# python main.py --dataset cifar10 --device cpu --optimizer ngd --network vgg16_bn  --epoch 100 --bn true --milestone 40,80 --learning_rate 0.01 --damping 0.03 --weight_decay 0.003
-python main.py --freq 1 --batch_size 128 --dataset cifar10 --device cpu --momentum 0.9 --warmup 0 --optimizer ngd --network vgg16_bn  --epoch 100  --milestone 40,80 --learning_rate 0.01 --damping 0.03 --weight_decay 0.003
+python main.py --freq 50 --dataset cifar10 --low_rank true --batch_size 13 --device cpu --optimizer ngd --network vgg16_bn  --epoch 20 --milestone 40,80 --learning_rate  0.1   --adaptive false --alpha 0.1 --taw 0.001 --boost 1.01 --drop 0.99 --weight_decay 0.003 --momentum 0.5

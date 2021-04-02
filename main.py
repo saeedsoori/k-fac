@@ -340,14 +340,14 @@ def train(epoch):
                                     n = NGD_inv.shape[0]
 
                                     grad_reshape = grad.reshape(grad.shape[0], -1)
-                                    grad_prod = V.t() @ grad_reshape.t().reshape(-1, 1)
+                                    grad_prod = V @ grad_reshape.t().reshape(-1, 1)
                                     grad_prod = torch.diag(S) @ grad_prod
                                     grad_prod = U @ grad_prod
                                     grad_prod = grad_prod.squeeze()
                                     v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
                                     gv= U.t() @ v.unsqueeze(1)
                                     gv = torch.diag(S) @ gv
-                                    gv = V @ gv
+                                    gv = V.t() @ gv
                                     gv = gv.reshape(grad_reshape.shape[1], grad_reshape.shape[0]).t()
                                     gv = gv.view_as(grad)
                                     gv = gv / n
