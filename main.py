@@ -397,7 +397,6 @@ def train(epoch):
                                 m.weight.grad.copy_(update)
                         elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm1d):
                             if args.batchnorm == 'true':
-                                print('BN')
                                 dw = m.dw
                                 n = dw.shape[0]
                                 NGD_inv = m.NGD_inv
