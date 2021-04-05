@@ -1,7 +1,7 @@
 '''Train CIFAR10/CIFAR100 with PyTorch.'''
 import argparse
 import os
-from optimizers import (KFACOptimizer, EKFACOptimizer)
+from optimizers import (KFACOptimizer, EKFACOptimizer, KBFGSOptimizer)
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -158,8 +158,18 @@ elif optim_name == 'ngd':
     if args.momentum != 0:
         for name, param in net.named_parameters():
                 # print('initializing momentum buffer')
-                buf[name] = torch.zeros_like(param.data).to(args.device) 
-
+                buf[name] = torch.zeros_like(param.data).to(args.device)
+elif optim_name == 'kbfgs':
+    print('K-BFGS optimizer selected.')
+    optimizer = KBFGSOptimizer(net,
+                               lr=args.learning_rate,
+                               momentum=args.momentum,
+                               stat_decay=args.stat_decay,
+                               damping=args.damping,
+                               kl_clip=args.kl_clip,
+                               weight_decay=args.weight_decay,
+                               TCov=args.TCov,
+                               TInv=args.TInv)
 else:
     raise NotImplementedError
 
@@ -229,7 +239,7 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
-    print('\nKFAC damping: %f' % damping)
+    print('\nKFAC/KBFGS damping: %f' % damping)
     print('\nNGD damping: %f' % (alpha_LM + taw))
     st_time = time.time()
 
@@ -258,7 +268,22 @@ def train(epoch):
                 optimizer.zero_grad()  # clear the gradient for computing true-fisher.
             loss.backward()
             optimizer.step()
+        elif optim_name == 'kbfgs':
+            inputs, targets = inputs.to(args.device), targets.to(args.device)
+            optimizer.zero_grad()
+            outputs, layer_inputs, pre_activations = net.forward(inputs, bfgs=True)
+            loss = criterion(outputs, targets)
+            
+            if optimizer.steps % optimizer.TCov == 0:
+                optimizer.acc_stats = True
+                loss.backward(retain_graph=True)
+                optimizer.acc_stats = False
 
+                def closure():
+                    return inputs, targets, criterion, outputs, layer_inputs, pre_activations
+                
+                # do another forward-backward pass over batch inside step()
+                optimizer.step(closure)
 
         elif optim_name == 'ngd':
             if batch_idx % args.freq == 0:
