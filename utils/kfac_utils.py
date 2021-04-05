@@ -94,41 +94,58 @@ class ComputeMatGrad:
 class ComputeCovA:
 
     @classmethod
-    def compute_cov_a(cls, a, layer):
-        return cls.__call__(a, layer)
+    def compute_cov_a(cls, a, layer, bfgs=False):
+        return cls.__call__(a, layer, bfgs)
 
     @classmethod
-    def __call__(cls, a, layer):
+    def __call__(cls, a, layer, bfgs=False):
         if isinstance(layer, nn.Linear):
-            cov_a = cls.linear(a, layer)
+            cov_a, a_avg = cls.linear(a, layer, bfgs)
         elif isinstance(layer, nn.Conv2d):
-            cov_a = cls.conv2d(a, layer)
+            cov_a, a_avg = cls.conv2d(a, layer, bfgs)
         else:
             # FIXME(CW): for extension to other layers.
             # raise NotImplementedError
-            cov_a = None
+            cov_a, a_avg = None, None
 
-        return cov_a
+        if bfgs:
+            return cov_a, a_avg
+        return conv_a
 
     @staticmethod
-    def conv2d(a, layer):
+    def conv2d(a, layer, bfgs=False):
+
         batch_size = a.size(0)
         a = _extract_patches(a, layer.kernel_size, layer.stride, layer.padding)
         spatial_size = a.size(1) * a.size(2)
         a = a.view(-1, a.size(-1))
         if layer.bias is not None:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
+
+        # TODO(bmu): keepdim?
+        # a averaged over batch + spatial dimension
+        a_avg = None
+        if bfgs:
+            a_avg = torch.mean(a, dim=0, keepdim=True)
+
         a = a/spatial_size
         # FIXME(CW): do we need to divide the output feature map's size?
-        return a.t() @ (a / batch_size)
+        return a.t() @ (a / batch_size), a_avg
 
     @staticmethod
-    def linear(a, layer):
+    def linear(a, layer, bfgs=False):
         # a: batch_size * in_dim
         batch_size = a.size(0)
         if layer.bias is not None:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
-        return a.t() @ (a / batch_size)
+
+        # TODO(bmu): check
+        # a averaged over batch dimension
+        a_avg = None
+        if bfgs:
+            a_avg = torch.mean(a, dim=0, keepdim=True)
+
+        return a.t() @ (a / batch_size), a_avg
 
 
 class ComputeCovG:
