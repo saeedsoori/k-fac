@@ -37,27 +37,6 @@ class ConvNet(nn.Module):
         )
 
     def forward(self, x, bfgs=False):
-        if bfgs:
-            layer_inputs = []
-            pre_activations = []
-
-            # Assume Conv2d is always followed by activation
-            # and Linear always have a Flatten before it
-            assert(len(self.modules()) % 2 == 0)
-            num_layer_groups = len(self.modules()) / 2
-            for l in range(num_layer_groups):
-                module = self.modules()[l * 2]
-                act = self.modules()[l * 2 + 1]
-                module_name = module.__class__.__name__
-                act_name = act.__class__.__name__
-                print('* forward [' + module_name + '] + [' + act_name + ']')
-                layer_inputs.append(x)
-                pre = module(x)
-                pre_activations.append(pre)
-                x = act(x)
-                pre.retain_grad() # enable .grad for non-leaf tensor
-            return x, layer_inputs, pre_activations
-
         x = self.features(x)
         return x
 

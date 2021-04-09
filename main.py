@@ -271,18 +271,17 @@ def train(epoch):
         elif optim_name == 'kbfgs':
             inputs, targets = inputs.to(args.device), targets.to(args.device)
             optimizer.zero_grad()
-            outputs, layer_inputs, pre_activations = net.forward(inputs, bfgs=True)
+            outputs = net.forward(inputs)
             loss = criterion(outputs, targets)
             
             if optimizer.steps % optimizer.TCov == 0:
                 optimizer.acc_stats = True
                 loss.backward(retain_graph=True)
                 optimizer.acc_stats = False
-
-                def closure():
-                    return inputs, targets, criterion, outputs, layer_inputs, pre_activations
                 
                 # do another forward-backward pass over batch inside step()
+                def closure():
+                    return inputs, targets, criterion
                 optimizer.step(closure)
 
         elif optim_name == 'ngd':
