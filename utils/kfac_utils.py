@@ -90,31 +90,32 @@ class ComputeMatGrad:
             grad = torch.einsum('abm,abn->amn', (grad_output, input))
         return grad
 
-
+# TODO(bmu): check avg over spatial dim
 class ComputeCovA:
 
     @classmethod
-    def compute_cov_a(cls, a, layer, bfgs=False):
-        return cls.__call__(a, layer, bfgs)
+    def compute_cov_a(cls, a, layer, bfgs=False, pre=False):
+        return cls.__call__(a, layer, bfgs, pre)
 
     @classmethod
-    def __call__(cls, a, layer, bfgs=False):
+    def __call__(cls, a, layer, bfgs=False, pre=False):
         if isinstance(layer, nn.Linear):
-            cov_a, a_avg = cls.linear(a, layer, bfgs)
+            cov_a, a_avg = cls.linear(a, layer, bfgs, pre)
         elif isinstance(layer, nn.Conv2d):
-            cov_a, a_avg = cls.conv2d(a, layer, bfgs)
+            cov_a, a_avg = cls.conv2d(a, layer, bfgs, pre)
         else:
             # FIXME(CW): for extension to other layers.
             # raise NotImplementedError
             cov_a, a_avg = None, None
 
-        if bfgs:
+        if pre:
+            return a_avg
+        elif bfgs:
             return cov_a, a_avg
-        return conv_a
+        return cov_a
 
     @staticmethod
-    def conv2d(a, layer, bfgs=False):
-
+    def conv2d(a, layer, bfgs=False, pre=False):
         batch_size = a.size(0)
         a = _extract_patches(a, layer.kernel_size, layer.stride, layer.padding)
         spatial_size = a.size(1) * a.size(2)
@@ -122,18 +123,22 @@ class ComputeCovA:
         if layer.bias is not None:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
 
+        a = a / spatial_size
+
         # TODO(bmu): keepdim?
         # a averaged over batch + spatial dimension
-        a_avg = None
-        if bfgs:
+        if pre:
             a_avg = torch.mean(a, dim=0, keepdim=True)
+            return None, a_avg
+        elif bfgs:
+            a_avg = torch.mean(a, dim=0, keepdim=True)
+            return a.t() @ (a / batch_size), a_avg
 
-        a = a/spatial_size
         # FIXME(CW): do we need to divide the output feature map's size?
-        return a.t() @ (a / batch_size), a_avg
+        return a.t() @ (a / batch_size), None
 
     @staticmethod
-    def linear(a, layer, bfgs=False):
+    def linear(a, layer, bfgs=False, pre=False):
         # a: batch_size * in_dim
         batch_size = a.size(0)
         if layer.bias is not None:
@@ -141,17 +146,19 @@ class ComputeCovA:
 
         # TODO(bmu): check
         # a averaged over batch dimension
-        a_avg = None
-        if bfgs:
+        if pre:
             a_avg = torch.mean(a, dim=0, keepdim=True)
+            return None, a_avg
+        elif bfgs:
+            a_avg = torch.mean(a, dim=0, keepdim=True)
+            return a.t() @ (a / batch_size), a_avg
 
-        return a.t() @ (a / batch_size), a_avg
-
+        return a.t() @ (a / batch_size), None
 
 class ComputeCovG:
 
     @classmethod
-    def compute_cov_g(cls, g, layer, batch_averaged=False):
+    def compute_cov_g(cls, g, layer, batch_averaged=False, bfgs=False, pre=False):
         """
         :param g: gradient
         :param layer: the corresponding layer
@@ -159,48 +166,64 @@ class ComputeCovG:
         :return:
         """
         # batch_size = g.size(0)
-        return cls.__call__(g, layer, batch_averaged)
+        return cls.__call__(g, layer, batch_averaged, bfgs)
 
     @classmethod
-    def __call__(cls, g, layer, batch_averaged):
+    def __call__(cls, g, layer, batch_averaged, bfgs=False, pre=False):
         if isinstance(layer, nn.Conv2d):
-            cov_g = cls.conv2d(g, layer, batch_averaged)
+            cov_g, g_avg = cls.conv2d(g, layer, batch_averaged, bfgs, pre)
         elif isinstance(layer, nn.Linear):
-            cov_g = cls.linear(g, layer, batch_averaged)
+            cov_g, g_avg  = cls.linear(g, layer, batch_averaged, bfgs, pre)
         else:
-            cov_g = None
+            cov_g, g_avg = None, None
+
+        if bfgs:
+            return g_avg
 
         return cov_g
 
     @staticmethod
-    def conv2d(g, layer, batch_averaged):
+    def conv2d(g, layer, batch_averaged, bfgs=False, pre=False):
         # g: batch_size * n_filters * out_h * out_w
         # n_filters is actually the output dimension (analogous to Linear layer)
         spatial_size = g.size(2) * g.size(3)
         batch_size = g.shape[0]
+
         g = g.transpose(1, 2).transpose(2, 3)
         g = try_contiguous(g)
         g = g.view(-1, g.size(-1))
 
         if batch_averaged:
             g = g * batch_size
-        g = g * spatial_size
+
+        if bfgs:
+            avg_g = torch.mean(g, dim=0, keepdim=True)
+            return None, avg_g
+
+        g = g * spatial_size # TODO (bmu): ?
+
         cov_g = g.t() @ (g / g.size(0))
 
-        return cov_g
+
+        return cov_g, None
 
     @staticmethod
-    def linear(g, layer, batch_averaged):
+    def linear(g, layer, batch_averaged, bfgs=False, pre=False):
         # g: batch_size * out_dim
         batch_size = g.size(0)
+
+        if bfgs:
+            if batch_averaged:
+                g = g * batch_size
+            avg_g = torch.mean(g, dim=0, keepdim=True)
+            return None, avg_g
 
         if batch_averaged:
             cov_g = g.t() @ (g * batch_size)
         else:
             cov_g = g.t() @ (g / batch_size)
-        return cov_g
 
-
+        return cov_g, None
 
 if __name__ == '__main__':
     def test_ComputeCovA():
