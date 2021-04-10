@@ -38,7 +38,7 @@ class KBFGSOptimizer(optim.Optimizer):
         self.known_modules = {'Linear', 'Conv2d'}
 
         self.modules = []
-        self.layer_inputs, self.pre_activations, self.next_pre_activations = [], [], []
+        self.layer_inputs, self.pre_activations, self.next_pre_activations = {}, {}, {}
         self.grad_outputs = {} # TODO(bmu): unused?
 
         self.model = model
@@ -49,6 +49,7 @@ class KBFGSOptimizer(optim.Optimizer):
         self.stat_decay = stat_decay
         self.weight_decay = weight_decay
         self.momentum = momentum
+        self.damping = damping
         self.lr = lr
 
         self.kl_clip = kl_clip
@@ -66,33 +67,39 @@ class KBFGSOptimizer(optim.Optimizer):
         self.s_g, self.y_g, self.H_g = {}, {}, {}
 
 
-    def _save_input(self, module, input):
+    def _save_input(self, m, input):
         if torch.is_grad_enabled(): # TODO(bmu): clean?
             # KF-QN-CNN use an estimate over a batch instead of running estimate
-            self.m_aa[module], self.a_avg[module] = self.CovAHandler(input[0].data, module, bfgs=True)
+            self.m_aa[m], self.a_avg[m] = self.CovAHandler(input[0].data, m, bfgs=True)
 
-    def _save_pre_and_output(self, module, input, output):
-        if module.__class__.__name__ in self.known_modules:
-            self.layer_inputs.append(input)
-            self.pre_activations.append(output)
+            # initialize
+            if self.steps == 0:
+                self.H_a[m] = torch.linalg.inv(self.m_aa[m] + math.sqrt(self.damping) * torch.eye(self.m_aa[m].size(0)))
 
-            # TODO(bmu): enable .grad for non-leaf tensor?
-            # output.retain_grad()
+    def _save_pre_and_output(self, m, input, output):
+        self.layer_inputs[m] = input
+        self.pre_activations[m] = self.CovGHandler(output, m, batch_averaged=False, bfgs=True, pre=True)
 
-    def _save_next_pre(self, module, input, output):
-        if module.__class__.__name__ in self.known_modules:
-            self.next_pre_activations.append(output)
-
-            # TODO(bmu): enable .grad for non-leaf tensor?
-            # output.retain_grad()
-
-    def _save_grad_output(self, module, grad_input, grad_output):
-        self.g_avg[module] = self.CovGHandler(grad_output[0].data, module, self.batch_averaged)
-
+        # TODO(bmu): enable .grad for non-leaf tensor?
+        # output.retain_grad()
         # TODO(bmu): initialize buffers
+        if self.steps == 0:
+            self.H_g[m] = torch.eye(m.weight.data.size(0))
+            self.s_g[m] = torch.zeros(self.pre_activations[m].size(-1), 1)
+
+    def _save_next_pre(self, m, input, output):
+        self.next_pre_activations[m] = self.CovGHandler(output, m, batch_averaged=False, bfgs=True, pre=True)
+
+            # TODO(bmu): enable .grad for non-leaf tensor?
+            # output.retain_grad()
+
+    def _save_grad_output(self, m, grad_input, grad_output):
+        self.g_avg[m] = self.CovGHandler(grad_output[0].data, m, self.batch_averaged, bfgs=True)
+        if self.steps == 0:
+            self.y_g[m] = torch.zeros(self.g_avg[m].size(-1), 1)
 
     def _save_next_grad_output(self, module, grad_input, grad_output):
-        self.next_g_avg[module] = self.CovGHandler(grad_output[0].data, module, self.batch_averaged)
+        self.next_g_avg[module] = self.CovGHandler(grad_output[0].data, module, self.batch_averaged, bfgs=True)
 
         # TODO(bmu): initialize buffers
 
@@ -120,8 +127,10 @@ class KBFGSOptimizer(optim.Optimizer):
                     module.register_backward_hook(self._save_next_grad_output)
                     print(module)
 
-    def _get_BFGS_update(H, s, y, g_k=None):
+    def _get_BFGS_update(self, H, s, y, g_k=None):
         # TODO(bmu): check if inplace operation
+        s = s.view(s.size(0))
+        y = y.view(y.size(0))
         rho_inv = torch.dot(s, y)
 
         if rho_inv <= 0:
@@ -144,20 +153,39 @@ class KBFGSOptimizer(optim.Optimizer):
 
         return H, 0
 
-    def _update_inv(self, m, damping):
+    def _get_DD_damping(self, H, s, y, mu1, mu2):
+        s = s.view(s.size(0))
+        y = y.view(y.size(0))
+        v0 = torch.mv(H, y)
+        v1 = torch.dot(s, y)
+        v2 = torch.dot(y, v0)
+        if v1 < mu1 * v2:
+            theta1 = (1 - mu1) * v2 / (v2 - v1)
+        else:
+            theta1 = 1
+        # Powell's damping on H
+        s_ = theta1 * s + (1 - theta1) * v0
+        # LM damping on inv(H)
+        y_ = y + mu2 * s_
+        return s_, y_
+
+    def _update_inv(self, m, damping, n=None):
         """
         :param m: The layer
+        :param n: copy of this layer (used as key for next_g_avg only)
         :return: no returns.
         """
-        if self.steps == 0:
-            self.H_a[m] = torch.linalg.inv(self.m_aa[m] + math.sqrt(damping) * torch.eye(self.m_aa[m].size(0)))
-            self.H_g[m] = torch.eye(m.weight.grad.data.size(0))
-        else:
-            self.s_a[m] = self.H_a[m] @ self.a_avg[m].transpose(0, 1)
-            self.y_a[m] = self.m_aa[m] @ self.s_a[m] + math.sqrt(damping) * self.s_a[m]
-            self.H_a[m], status = self._get_BFGS_update(self.H_a[m], self.s_a[m], self.y_a[m])
-            print('update Ha by BFGS: status = ', status)
-            # TODO(bmu): update Hg by damped BFGS
+        self.s_a[m] = self.H_a[m] @ self.a_avg[m].transpose(0, 1)
+        self.y_a[m] = self.m_aa[m] @ self.s_a[m] + math.sqrt(damping) * self.s_a[m]
+        self.H_a[m], status = self._get_BFGS_update(self.H_a[m], self.s_a[m], self.y_a[m])
+
+        # TODO(bmu): update Hg by damped BFGS
+        self.s_g[m] = self.stat_decay * self.s_g[m] + (1 - self.stat_decay) * (self.next_pre_activations[n] - self.pre_activations[m]).transpose(0, 1)
+        self.y_g[m] = self.stat_decay * self.y_g[m] + (1 - self.stat_decay) * (self.next_g_avg[n] - self.g_avg[m]).transpose(0, 1)
+
+        s_g_, y_g_ = self._get_DD_damping(self.H_g[m], self.s_g[m], self.y_g[m], 0.2, math.sqrt(damping))
+
+        self.H_g[m], status = self._get_BFGS_update(self.H_g[m], s_g_, y_g_)
 
     @staticmethod
     def _get_matrix_form_grad(m, classname):
@@ -181,14 +209,7 @@ class KBFGSOptimizer(optim.Optimizer):
         :return: a list of gradients w.r.t to the parameters in `m`
         """
         # p_grad_mat is of output_dim * input_dim
-
-        print('=== _get_layer_update_direction ===')
-        print('self.H_g[m].shape: ', self.H_g[m].shape)
-        print('p_grad_mat.shape: ', p_grad_mat.shape)
-        print('self.H_a[m].shape: ', self.H_a[m].shape)
-
         v = self.H_g[m] @ p_grad_mat @ self.H_a[m]
-        print('v.shape: ', v.shape)
 
         if m.bias is not None:
             # we always put gradient w.r.t weight in [0] and w.r.t bias in [1]
@@ -272,9 +293,6 @@ class KBFGSOptimizer(optim.Optimizer):
         # layer index, the key used to match the parameters in the model and clone model
         l = 0
         for m in self.modules: # Conv2D and Linear only
-            if self.steps % self.TInv == 0:
-                # initialize if self.steps == 0
-                self._update_inv(m, damping)
             p_grad_mat = self._get_matrix_form_grad(m, m.__class__.__name__)
             v = self._get_layer_update_direction(m, p_grad_mat, damping)
             updates[l] = v
@@ -316,15 +334,16 @@ class KBFGSOptimizer(optim.Optimizer):
 
         # TODO(bmu): complete inverse update with BFGS below
         updates = {}
-        count = 0 # layer index, the key used to match the parameters in the model and clone model
+        l = 0 # layer index, the key used to match the parameters in the model and clone model
         for m in self.modules:
             classname = m.__class__.__name__
             if self.steps % self.TInv == 0:
-                self._update_inv(m, damping)
+                n = new_modules[l]
+                self._update_inv(m, damping, n)
             p_grad_mat = self._get_matrix_form_grad(m, classname)
             v = self._get_layer_update_direction(m, p_grad_mat, damping)
-            updates[count] = v
-            count += 1
+            updates[l] = v
+            l += 1
         self._update_grad(self.modules, updates)
 
         self._step(closure)
