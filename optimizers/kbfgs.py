@@ -13,10 +13,9 @@ class KBFGSOptimizer(optim.Optimizer):
                  model,
                  lr=0.001,
                  momentum=0.9,
+                 weight_decay=0,
                  stat_decay=0.9,
                  damping=0.3,
-                 kl_clip=0.001,
-                 weight_decay=0,
                  TCov=1,
                  TInv=100,
                  batch_averaged=True):
@@ -38,11 +37,10 @@ class KBFGSOptimizer(optim.Optimizer):
         self.known_modules = {'Linear', 'Conv2d'}
 
         self.modules = []
-        self.layer_inputs, self.pre_activations, self.next_pre_activations = {}, {}, {}
-        self.grad_outputs = {} # TODO(bmu): unused?
+        self.pre_activations, self.next_pre_activations = {}, {}
 
         self.model = model
-        self._prepare_model(self.model)
+        self._prepare_model(self.model, init_module=True)
 
         self.steps = 0
 
@@ -52,7 +50,6 @@ class KBFGSOptimizer(optim.Optimizer):
         self.damping = damping
         self.lr = lr
 
-        self.kl_clip = kl_clip
         self.TCov = TCov
         self.TInv = TInv
 
@@ -73,37 +70,35 @@ class KBFGSOptimizer(optim.Optimizer):
             self.m_aa[m], self.a_avg[m] = self.CovAHandler(input[0].data, m, bfgs=True)
 
             # initialize
-            if self.steps == 0:
+            # if self.steps == 0:
+            if not m in self.H_a:
                 self.H_a[m] = torch.linalg.inv(self.m_aa[m] + math.sqrt(self.damping) * torch.eye(self.m_aa[m].size(0)))
 
     def _save_pre_and_output(self, m, input, output):
-        self.layer_inputs[m] = input
-        self.pre_activations[m] = self.CovGHandler(output, m, batch_averaged=False, bfgs=True, pre=True)
+        self.pre_activations[m] = self.CovGHandler(output, m, batch_averaged=False, bfgs=False, pre=True)
 
         # TODO(bmu): enable .grad for non-leaf tensor?
         # output.retain_grad()
         # TODO(bmu): initialize buffers
-        if self.steps == 0:
-            self.H_g[m] = torch.eye(m.weight.data.size(0))
+        # if self.steps == 0:
+        if not m in self.H_g:
+            self.H_g[m] = torch.eye(self.pre_activations[m].size(-1))
             self.s_g[m] = torch.zeros(self.pre_activations[m].size(-1), 1)
+            self.y_g[m] = torch.zeros(self.pre_activations[m].size(-1), 1)
 
     def _save_next_pre(self, m, input, output):
-        self.next_pre_activations[m] = self.CovGHandler(output, m, batch_averaged=False, bfgs=True, pre=True)
+        self.next_pre_activations[m] = self.CovGHandler(output, m, batch_averaged=False, bfgs=False, pre=True)
 
             # TODO(bmu): enable .grad for non-leaf tensor?
             # output.retain_grad()
 
     def _save_grad_output(self, m, grad_input, grad_output):
         self.g_avg[m] = self.CovGHandler(grad_output[0].data, m, self.batch_averaged, bfgs=True)
-        if self.steps == 0:
-            self.y_g[m] = torch.zeros(self.g_avg[m].size(-1), 1)
 
     def _save_next_grad_output(self, module, grad_input, grad_output):
         self.next_g_avg[module] = self.CovGHandler(grad_output[0].data, module, self.batch_averaged, bfgs=True)
 
-        # TODO(bmu): initialize buffers
-
-    def _prepare_model(self, model, cloned=False):
+    def _prepare_model(self, model, cloned=False, init_module=False):
         print(model)
 
         if not cloned:
@@ -111,8 +106,8 @@ class KBFGSOptimizer(optim.Optimizer):
             print("=> We keep following layers in KBFGS. ")
             for module in model.modules():
                 if module.__class__.__name__ in self.known_modules:
-
-                    self.modules.append(module)
+                    if init_module:
+                        self.modules.append(module)
                     print('(%s): %s' % (count, module))
                     self.handles.append(module.register_forward_pre_hook(self._save_input))
                     self.handles.append(module.register_forward_hook(self._save_pre_and_output))
@@ -169,7 +164,7 @@ class KBFGSOptimizer(optim.Optimizer):
         y_ = y + mu2 * s_
         return s_, y_
 
-    def _update_inv(self, m, damping, n=None):
+    def _update_inv(self, m, damping, n):
         """
         :param m: The layer
         :param n: copy of this layer (used as key for next_g_avg only)
@@ -179,7 +174,6 @@ class KBFGSOptimizer(optim.Optimizer):
         self.y_a[m] = self.m_aa[m] @ self.s_a[m] + math.sqrt(damping) * self.s_a[m]
         self.H_a[m], status = self._get_BFGS_update(self.H_a[m], self.s_a[m], self.y_a[m])
 
-        # TODO(bmu): update Hg by damped BFGS
         self.s_g[m] = self.stat_decay * self.s_g[m] + (1 - self.stat_decay) * (self.next_pre_activations[n] - self.pre_activations[m]).transpose(0, 1)
         self.y_g[m] = self.stat_decay * self.y_g[m] + (1 - self.stat_decay) * (self.next_g_avg[n] - self.g_avg[m]).transpose(0, 1)
 
@@ -228,7 +222,7 @@ class KBFGSOptimizer(optim.Optimizer):
             m.weight.grad.data.copy_(v[0])
             if step:
                 # if self.weight_decay != 0 and self.steps >= 20 * self.TCov:
-                m.weight.grad.data.add_(self.weight_decay, m.weight.data)
+                # m.weight.grad.data.add_(self.weight_decay, m.weight.data)
                 if self.momentum != 0:
                     param_state = self.state[m.weight]
                     if 'momentum_buffer' not in param_state:
@@ -244,7 +238,7 @@ class KBFGSOptimizer(optim.Optimizer):
                 m.bias.grad.data.copy_(v[1])
                 if step:
                     # if self.weight_decay != 0 and self.steps >= 20 * self.TCov:
-                    m.bias.grad.data.add_(self.weight_decay, m.bias.data)
+                    # m.bias.grad.data.add_(self.weight_decay, m.bias.data)
                     if self.momentum != 0:
                         param_state = self.state[m.bias]
                         if 'momentum_buffer' not in param_state:
@@ -269,7 +263,7 @@ class KBFGSOptimizer(optim.Optimizer):
                     continue
                 d_p = p.grad.data
                 # if weight_decay != 0 and self.steps >= 20 * self.TCov:
-                d_p.add_(weight_decay, p.data)
+                # d_p.add_(weight_decay, p.data)
                 if momentum != 0:
                     param_state = self.state[p]
                     if 'momentum_buffer' not in param_state:
@@ -297,13 +291,14 @@ class KBFGSOptimizer(optim.Optimizer):
             v = self._get_layer_update_direction(m, p_grad_mat, damping)
             updates[l] = v
             l += 1
-        
-        # for group in self.param_groups:
-        #     weight_decay = group['weight_decay']
-        #     momentum = group['momentum']
-        #     for p in group['params']:
-        #         print("param: ", p)
 
+        self._update_grad(self.modules, updates)
+        self._step(closure)
+
+        # self._prepare_model(self.model, cloned=False)
+        # self.steps += 1
+
+        # return 
 
         # clone model and do another fw-bw pass over this batch to compute next h and Dh
         # in order to update Hg
@@ -311,8 +306,10 @@ class KBFGSOptimizer(optim.Optimizer):
 
         for handle in self.handles:
             handle.remove()
+            # pass      
 
         model_new = copy.deepcopy(self.model)
+
         self._prepare_model(model_new, cloned=True)
 
         inputs, targets, criterion = closure()
@@ -330,21 +327,14 @@ class KBFGSOptimizer(optim.Optimizer):
                 new_modules.append(module)
                 print('%s' % module)
 
-        self._update_grad(new_modules, updates, step=True)
 
         # TODO(bmu): complete inverse update with BFGS below
-        updates = {}
         l = 0 # layer index, the key used to match the parameters in the model and clone model
         for m in self.modules:
             classname = m.__class__.__name__
-            if self.steps % self.TInv == 0:
-                n = new_modules[l]
-                self._update_inv(m, damping, n)
-            p_grad_mat = self._get_matrix_form_grad(m, classname)
-            v = self._get_layer_update_direction(m, p_grad_mat, damping)
-            updates[l] = v
+            # if self.steps % self.TInv == 0:
+            n = new_modules[l]
+            self._update_inv(m, damping, n)
             l += 1
-        self._update_grad(self.modules, updates)
 
-        self._step(closure)
-        self.steps += 1
+        
