@@ -123,8 +123,6 @@ class ComputeCovA:
         if layer.bias is not None:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
 
-        a = a / spatial_size
-
         # TODO(bmu): keepdim?
         # a averaged over batch + spatial dimension
         if pre:
@@ -132,9 +130,12 @@ class ComputeCovA:
             return None, a_avg
         elif bfgs:
             a_avg = torch.mean(a, dim=0, keepdim=True)
-            return a.t() @ (a / batch_size), a_avg
+            a = a / spatial_size
+            cov_a = a.t() @ (a / batch_size)
+            return cov_a, a_avg
 
         # FIXME(CW): do we need to divide the output feature map's size?
+        a = a / spatial_size
         return a.t() @ (a / batch_size), None
 
     @staticmethod
@@ -166,7 +167,7 @@ class ComputeCovG:
         :return:
         """
         # batch_size = g.size(0)
-        return cls.__call__(g, layer, batch_averaged, bfgs)
+        return cls.__call__(g, layer, batch_averaged, bfgs, pre)
 
     @classmethod
     def __call__(cls, g, layer, batch_averaged, bfgs=False, pre=False):
@@ -177,7 +178,7 @@ class ComputeCovG:
         else:
             cov_g, g_avg = None, None
 
-        if bfgs:
+        if pre or bfgs:
             return g_avg
 
         return cov_g
@@ -196,14 +197,13 @@ class ComputeCovG:
         if batch_averaged:
             g = g * batch_size
 
-        if bfgs:
+        g = g * spatial_size
+
+        if pre or bfgs:
             avg_g = torch.mean(g, dim=0, keepdim=True)
             return None, avg_g
 
-        g = g * spatial_size # TODO (bmu): ?
-
         cov_g = g.t() @ (g / g.size(0))
-
 
         return cov_g, None
 
@@ -212,7 +212,7 @@ class ComputeCovG:
         # g: batch_size * out_dim
         batch_size = g.size(0)
 
-        if bfgs:
+        if pre or bfgs:
             if batch_averaged:
                 g = g * batch_size
             avg_g = torch.mean(g, dim=0, keepdim=True)
