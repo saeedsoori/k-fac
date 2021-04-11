@@ -164,10 +164,9 @@ elif optim_name == 'kbfgs':
     optimizer = KBFGSOptimizer(net,
                                lr=args.learning_rate,
                                momentum=args.momentum,
+                               weight_decay=args.weight_decay,
                                stat_decay=args.stat_decay,
                                damping=args.damping,
-                               kl_clip=args.kl_clip,
-                               weight_decay=args.weight_decay,
                                TCov=args.TCov,
                                TInv=args.TInv)
 else:
@@ -273,7 +272,6 @@ def train(epoch):
             optimizer.zero_grad()
             outputs = net.forward(inputs)
             loss = criterion(outputs, targets)
-            
             if optimizer.steps % optimizer.TCov == 0:
                 optimizer.acc_stats = True
                 loss.backward(retain_graph=True)
