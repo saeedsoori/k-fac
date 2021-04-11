@@ -296,7 +296,6 @@ class KBFGSOptimizer(optim.Optimizer):
         self._step(closure)
 
         # self._prepare_model(self.model, cloned=False)
-        # self.steps += 1
 
         # return 
 
@@ -337,4 +336,6 @@ class KBFGSOptimizer(optim.Optimizer):
             self._update_inv(m, damping, n)
             l += 1
 
+        # self.steps += 1
+        
         
