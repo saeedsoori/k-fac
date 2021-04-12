@@ -208,40 +208,14 @@ class KBFGSOptimizer(optim.Optimizer):
 
         return v
 
-    def _update_grad(self, modules, updates, step=False):
+    def _update_grad(self, modules, updates):
         l = 0
         for m in modules:
             v = updates[l]
             m.weight.grad.data.copy_(v[0])
-            if step:
-                if self.weight_decay != 0 and self.steps >= 20 * self.TCov:
-                    m.weight.grad.data.add_(self.weight_decay, m.weight.data)
-                if self.momentum != 0:
-                    param_state = self.state[m.weight]
-                    if 'momentum_buffer' not in param_state:
-                        buf = param_state['momentum_buffer'] = torch.zeros_like(m.weight.data)
-                        buf.mul_(self.momentum).add_(1, m.weight.grad.data)
-                    else:
-                        buf = param_state['momentum_buffer']
-                        buf.mul_(self.momentum).add_(1, m.weight.grad.data)
-                    m.weight.grad.data = buf
-                m.weight.data.add_(-self.lr, m.weight.grad.data)
 
             if m.bias is not None:
                 m.bias.grad.data.copy_(v[1])
-                if step:
-                    if self.weight_decay != 0 and self.steps >= 20 * self.TCov:
-                        m.bias.grad.data.add_(self.weight_decay, m.bias.data)
-                    if self.momentum != 0:
-                        param_state = self.state[m.bias]
-                        if 'momentum_buffer' not in param_state:
-                            buf = param_state['momentum_buffer'] = torch.zeros_like(m.bias.data)
-                            buf.mul_(self.momentum).add_(1, m.bias.grad.data)
-                        else:
-                            buf = param_state['momentum_buffer']
-                            buf.mul_(self.momentum).add_(1, m.bias.grad.data)
-                        m.bias.grad.data = buf
-                    m.bias.data.add_(-self.lr, m.bias.grad.data)
             l += 1
 
     def _step(self, closure):

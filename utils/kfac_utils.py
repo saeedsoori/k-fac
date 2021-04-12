@@ -94,28 +94,26 @@ class ComputeMatGrad:
 class ComputeCovA:
 
     @classmethod
-    def compute_cov_a(cls, a, layer, bfgs=False, pre=False):
-        return cls.__call__(a, layer, bfgs, pre)
+    def compute_cov_a(cls, a, layer, bfgs=False):
+        return cls.__call__(a, layer, bfgs)
 
     @classmethod
-    def __call__(cls, a, layer, bfgs=False, pre=False):
+    def __call__(cls, a, layer, bfgs=False):
         if isinstance(layer, nn.Linear):
-            cov_a, a_avg = cls.linear(a, layer, bfgs, pre)
+            cov_a, a_avg = cls.linear(a, layer, bfgs)
         elif isinstance(layer, nn.Conv2d):
-            cov_a, a_avg = cls.conv2d(a, layer, bfgs, pre)
+            cov_a, a_avg = cls.conv2d(a, layer, bfgs)
         else:
             # FIXME(CW): for extension to other layers.
             # raise NotImplementedError
             cov_a, a_avg = None, None
 
-        if pre:
-            return a_avg
-        elif bfgs:
+        if bfgs:
             return cov_a, a_avg
         return cov_a
 
     @staticmethod
-    def conv2d(a, layer, bfgs=False, pre=False):
+    def conv2d(a, layer, bfgs=False):
         batch_size = a.size(0)
         a = _extract_patches(a, layer.kernel_size, layer.stride, layer.padding)
         spatial_size = a.size(1) * a.size(2)
@@ -123,7 +121,6 @@ class ComputeCovA:
         if layer.bias is not None:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
 
-        # TODO(bmu): keepdim?
         # a averaged over batch + spatial dimension
         if pre:
             a_avg = torch.mean(a, dim=0, keepdim=True)
@@ -139,13 +136,12 @@ class ComputeCovA:
         return a.t() @ (a / batch_size), None
 
     @staticmethod
-    def linear(a, layer, bfgs=False, pre=False):
+    def linear(a, layer, bfgs=False):
         # a: batch_size * in_dim
         batch_size = a.size(0)
         if layer.bias is not None:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
 
-        # TODO(bmu): check
         # a averaged over batch dimension
         if pre:
             a_avg = torch.mean(a, dim=0, keepdim=True)
