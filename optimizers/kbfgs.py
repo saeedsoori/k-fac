@@ -119,13 +119,13 @@ class KBFGSOptimizer(optim.Optimizer):
         # TODO(bmu): check if inplace operation
         s = s.view(s.size(0))
         y = y.view(y.size(0))
+        g_k = g_k.view(g_k.size(0))
         rho_inv = torch.dot(s, y)
 
         if rho_inv <= 0:
             return H, 1
-        # TODO(bmu): complete case 2 with g_k
-        # elif rho_inv <= 10**(-4) * torch.dot(s, s) * math.sqrt(torch.dot(g_k, g_k).item()):
-        #     return H, 2
+        elif rho_inv <= 10**(-4) * torch.dot(s, s) * math.sqrt(torch.dot(g_k, g_k).item()):
+            return H, 2
      
         rho = 1 / rho_inv
 
@@ -165,14 +165,14 @@ class KBFGSOptimizer(optim.Optimizer):
         """
         self.s_a[m] = self.H_a[m] @ self.a_avg[m].transpose(0, 1)
         self.y_a[m] = self.m_aa[m] @ self.s_a[m] + math.sqrt(damping) * self.s_a[m]
-        self.H_a[m], status = self._get_BFGS_update(self.H_a[m], self.s_a[m], self.y_a[m])
+        self.H_a[m], status = self._get_BFGS_update(self.H_a[m], self.s_a[m], self.y_a[m], self.a_avg[m].transpose(0, 1))
 
         self.s_g[m] = self.stat_decay * self.s_g[m] + (1 - self.stat_decay) * (self.next_pre_activations[n] - self.pre_activations[m]).transpose(0, 1)
         self.y_g[m] = self.stat_decay * self.y_g[m] + (1 - self.stat_decay) * (self.next_g_avg[n] - self.g_avg[m]).transpose(0, 1)
 
         s_g_, y_g_ = self._get_DD_damping(self.H_g[m], self.s_g[m], self.y_g[m], 0.2, math.sqrt(damping))
 
-        self.H_g[m], status = self._get_BFGS_update(self.H_g[m], s_g_, y_g_)
+        self.H_g[m], status = self._get_BFGS_update(self.H_g[m], s_g_, y_g_, self.g_avg[m].transpose(0, 1))
 
     @staticmethod
     def _get_matrix_form_grad(m, classname):
@@ -293,7 +293,6 @@ class KBFGSOptimizer(optim.Optimizer):
             l = 0 # layer index, the key used to match the parameters in the model and clone model
             for m in self.modules:
                 classname = m.__class__.__name__
-                # if self.steps % self.TInv == 0:
                 n = new_modules[l]
                 self._update_inv(m, damping, n)
                 l += 1

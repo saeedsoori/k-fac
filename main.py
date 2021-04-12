@@ -274,7 +274,6 @@ def train(epoch):
             loss = criterion(outputs, targets)
             # if optimizer.steps % optimizer.TCov == 0:
             loss.backward(retain_graph=True)
-            print("loss:", loss)
 
             # do another forward-backward pass over batch inside step()
             def closure():
