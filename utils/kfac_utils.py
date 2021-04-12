@@ -122,10 +122,7 @@ class ComputeCovA:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
 
         # a averaged over batch + spatial dimension
-        if pre:
-            a_avg = torch.mean(a, dim=0, keepdim=True)
-            return None, a_avg
-        elif bfgs:
+        if bfgs:
             a_avg = torch.mean(a, dim=0, keepdim=True)
             a = a / spatial_size
             cov_a = a.t() @ (a / batch_size)
@@ -143,10 +140,7 @@ class ComputeCovA:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
 
         # a averaged over batch dimension
-        if pre:
-            a_avg = torch.mean(a, dim=0, keepdim=True)
-            return None, a_avg
-        elif bfgs:
+        if bfgs:
             a_avg = torch.mean(a, dim=0, keepdim=True)
             return a.t() @ (a / batch_size), a_avg
 
