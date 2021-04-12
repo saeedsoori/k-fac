@@ -272,15 +272,14 @@ def train(epoch):
             optimizer.zero_grad()
             outputs = net.forward(inputs)
             loss = criterion(outputs, targets)
-            if optimizer.steps % optimizer.TCov == 0:
-                optimizer.acc_stats = True
-                loss.backward(retain_graph=True)
-                optimizer.acc_stats = False
-                
-                # do another forward-backward pass over batch inside step()
-                def closure():
-                    return inputs, targets, criterion
-                optimizer.step(closure)
+            # if optimizer.steps % optimizer.TCov == 0:
+            loss.backward(retain_graph=True)
+            print("loss:", loss)
+
+            # do another forward-backward pass over batch inside step()
+            def closure():
+                return inputs, targets, criterion
+            optimizer.step(closure)
 
         elif optim_name == 'ngd':
             if batch_idx % args.freq == 0:
