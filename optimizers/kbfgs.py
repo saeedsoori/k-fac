@@ -65,7 +65,7 @@ class KBFGSOptimizer(optim.Optimizer):
 
 
     def _save_input(self, m, input):
-        if torch.is_grad_enabled(): # TODO(bmu): clean?
+        if torch.is_grad_enabled() and self.steps % self.TCov == 0:
             # KF-QN-CNN use an estimate over a batch instead of running estimate
             self.m_aa[m], self.a_avg[m] = self.CovAHandler(input[0].data, m, bfgs=True)
 
@@ -74,22 +74,26 @@ class KBFGSOptimizer(optim.Optimizer):
                 self.H_a[m] = torch.linalg.inv(self.m_aa[m] + math.sqrt(self.damping) * torch.eye(self.m_aa[m].size(0)))
 
     def _save_pre_and_output(self, m, input, output):
-        self.pre_activations[m] = self.CovGHandler(output, m, batch_averaged=False, bfgs=False, pre=True)
+        if self.steps % self.TCov == 0:
+            self.pre_activations[m] = self.CovGHandler(output, m, batch_averaged=False, bfgs=False, pre=True)
 
-        # initialize buffer
-        if not m in self.H_g:
-            self.H_g[m] = torch.eye(self.pre_activations[m].size(-1))
-            self.s_g[m] = torch.zeros(self.pre_activations[m].size(-1), 1)
-            self.y_g[m] = torch.zeros(self.pre_activations[m].size(-1), 1)
+            # initialize buffer
+            if not m in self.H_g:
+                self.H_g[m] = torch.eye(self.pre_activations[m].size(-1))
+                self.s_g[m] = torch.zeros(self.pre_activations[m].size(-1), 1)
+                self.y_g[m] = torch.zeros(self.pre_activations[m].size(-1), 1)
 
     def _save_next_pre(self, m, input, output):
-        self.next_pre_activations[m] = self.CovGHandler(output, m, batch_averaged=False, bfgs=False, pre=True)
+        if self.steps % self.TCov == 0:
+            self.next_pre_activations[m] = self.CovGHandler(output, m, batch_averaged=False, bfgs=False, pre=True)
 
     def _save_grad_output(self, m, grad_input, grad_output):
-        self.g_avg[m] = self.CovGHandler(grad_output[0].data, m, self.batch_averaged, bfgs=True)
+        if self.steps % self.TCov == 0:
+            self.g_avg[m] = self.CovGHandler(grad_output[0].data, m, self.batch_averaged, bfgs=True)
 
     def _save_next_grad_output(self, module, grad_input, grad_output):
-        self.next_g_avg[module] = self.CovGHandler(grad_output[0].data, module, self.batch_averaged, bfgs=True)
+        if self.steps % self.TCov == 0:
+            self.next_g_avg[module] = self.CovGHandler(grad_output[0].data, module, self.batch_averaged, bfgs=True)
 
     def _prepare_model(self, model, cloned=False, init_module=False):
         print(model)
@@ -235,10 +239,10 @@ class KBFGSOptimizer(optim.Optimizer):
                     param_state = self.state[p]
                     if 'momentum_buffer' not in param_state:
                         buf = param_state['momentum_buffer'] = torch.zeros_like(p.data)
-                        buf.mul_(momentum).add_(d_p)
+                        buf.mul_(momentum).add_(1 - momentum, d_p)
                     else:
                         buf = param_state['momentum_buffer']
-                        buf.mul_(momentum).add_(1, d_p)
+                        buf.mul_(momentum).add_(1 - momentum, d_p)
                     d_p = buf
 
                 p.data.add_(-group['lr'], d_p)
