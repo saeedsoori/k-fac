@@ -272,9 +272,7 @@ def train(epoch):
             optimizer.zero_grad()
             outputs = net.forward(inputs)
             loss = criterion(outputs, targets)
-            # if optimizer.steps % optimizer.TCov == 0:
-            loss.backward(retain_graph=True)
-
+            loss.backward()
             # do another forward-backward pass over batch inside step()
             def closure():
                 return inputs, targets, criterion
