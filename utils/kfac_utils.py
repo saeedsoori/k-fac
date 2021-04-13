@@ -187,11 +187,11 @@ class ComputeCovG:
         if batch_averaged:
             g = g * batch_size
 
-        g = g * spatial_size
-
         if pre or bfgs:
             avg_g = torch.mean(g, dim=0, keepdim=True)
             return None, avg_g
+
+        g = g * spatial_size
 
         cov_g = g.t() @ (g / g.size(0))
 
