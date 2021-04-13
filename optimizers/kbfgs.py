@@ -66,9 +66,16 @@ class KBFGSOptimizer(optim.Optimizer):
 
     def _save_input(self, m, input):
         if torch.is_grad_enabled() and self.steps % self.TCov == 0:
-            # KF-QN-CNN use an estimate over a batch instead of running estimate
-            self.m_aa[m], self.a_avg[m] = self.CovAHandler(input[0].data, m, bfgs=True)
-
+            if m.__class__.__name__ == "Conv2d":
+                # KF-QN-CNN use an estimate over a batch instead of running estimate
+                self.m_aa[m], self.a_avg[m] = self.CovAHandler(input[0].data, m, bfgs=True)
+            elif m.__class__.__name__ == "Linear":
+                aa, self.a_avg[m] = self.CovAHandler(input[0].data, m, bfgs=True)
+                # initialize buffer
+                if self.steps == 0:
+                    self.m_aa[m] = torch.diag(aa.new(aa.size(0)).fill_(1))
+                # KF-QN-FC use a running estimate
+                update_running_stat(aa, self.m_aa[m], self.stat_decay)
             # initialize buffer
             if not m in self.H_a:
                 self.H_a[m] = torch.linalg.inv(self.m_aa[m] + math.sqrt(self.damping) * torch.eye(self.m_aa[m].size(0)))
@@ -145,7 +152,7 @@ class KBFGSOptimizer(optim.Optimizer):
 
         return H, 0
 
-    def _get_DD_damping(self, H, s, y, mu1, mu2):
+    def _get_DpDlm_damping(self, H, s, y, mu1, mu2):
         s = s.view(s.size(0))
         y = y.view(y.size(0))
         v0 = torch.mv(H, y)
@@ -161,6 +168,29 @@ class KBFGSOptimizer(optim.Optimizer):
         y_ = y + mu2 * s_
         return s_, y_
 
+    def _get_DD_damping(self, H, s, y, mu1, mu2):
+        s = s.view(s.size(0))
+        y = y.view(y.size(0))
+        v0 = torch.mv(H, y)
+        v1 = torch.dot(s, y)
+        v2 = torch.dot(y, v0)
+        if v1 < mu1 * v2:
+            theta1 = (1 - mu1) * v2 / (v2 - v1)
+        else:
+            theta1 = 1
+
+        # Powell's damping on H
+        s_ = theta1 * s + (1 - theta1) * v0
+        v3 = torch.dot(s_, y)
+        v4 = torch.dot(s_, s_)
+        if v3 < mu2 * v4:
+            theta2 = (1 - mu2) * v4 / (v4 - v3)
+        else:
+            theta2 = 1
+        # Powell's damping with B = I
+        y_ = theta2 * y + (1 - theta2) * s_
+        return s_, y_
+
     def _update_inv(self, m, damping, n):
         """
         :param m: The layer
@@ -174,7 +204,12 @@ class KBFGSOptimizer(optim.Optimizer):
         self.s_g[m] = self.stat_decay * self.s_g[m] + (1 - self.stat_decay) * (self.next_pre_activations[n] - self.pre_activations[m]).transpose(0, 1)
         self.y_g[m] = self.stat_decay * self.y_g[m] + (1 - self.stat_decay) * (self.next_g_avg[n] - self.g_avg[m]).transpose(0, 1)
 
-        s_g_, y_g_ = self._get_DD_damping(self.H_g[m], self.s_g[m], self.y_g[m], 0.2, math.sqrt(damping))
+        if m.__class__.__name__ == 'Conv2d':
+            s_g_, y_g_ = self._get_DpDlm_damping(self.H_g[m], self.s_g[m], self.y_g[m], 0.2, math.sqrt(damping))
+        elif m.__class__.__name__ == 'Linear':
+            s_g_, y_g_ = self._get_DD_damping(self.H_g[m], self.s_g[m], self.y_g[m], 0.2, math.sqrt(damping))
+        else:
+            raise NotImplementedError
 
         self.H_g[m], status = self._get_BFGS_update(self.H_g[m], s_g_, y_g_, self.g_avg[m].transpose(0, 1))
 
