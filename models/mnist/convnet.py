@@ -36,7 +36,7 @@ class ConvNet(nn.Module):
         
         )
 
-    def forward(self, x):
+    def forward(self, x, bfgs=False):
         x = self.features(x)
         return x
 
