@@ -11,7 +11,9 @@ class FC(nn.Module):
         super(FC, self).__init__()
         self.features = nn.Sequential(
             nn.Flatten(), 
-            nn.Linear(28*28, 500),
+            nn.Linear(28*28, 1000),
+            nn.ReLU(),
+            nn.Linear(1000, 500),
             nn.ReLU(),
             nn.Linear(500, 500),
             nn.ReLU(),
@@ -23,12 +25,7 @@ class FC(nn.Module):
             nn.ReLU(),
             nn.Linear(500, 10)
         )
-        # self.features = nn.Sequential(
-        #     nn.Flatten(), 
-        #     nn.Linear(28*28, 100),
-        #     nn.ReLU(),
-        #     nn.Linear(100, 10)
-        # )
+        
 
     def forward(self, x):
         x = self.features(x)
@@ -36,8 +33,7 @@ class FC(nn.Module):
 
 
 def fc(**kwargs):
-    """AlexNet model architecture from the
-    `"One weird trick..." <https://arxiv.org/abs/1404.5997>`_ paper.
+    """fully connected model for mnist.
     """
     model = FC(**kwargs)
     return model

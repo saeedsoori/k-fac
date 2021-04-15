@@ -57,7 +57,7 @@ parser.add_argument('--stat_decay', default=0.95, type=float)
 parser.add_argument('--damping', default=1e-3, type=float)
 parser.add_argument('--kl_clip', default=1e-2, type=float)
 parser.add_argument('--weight_decay', default=3e-3, type=float)
-parser.add_argument('--TCov', default=10, type=int)
+parser.add_argument('--TCov', default=20, type=int)
 parser.add_argument('--TScal', default=10, type=int)
 parser.add_argument('--TInv', default=100, type=int)
 
@@ -154,11 +154,6 @@ elif optim_name == 'ngd':
                           lr=args.learning_rate,
                           momentum=args.momentum)
 
-    buf = {}
-    if args.momentum != 0:
-        for name, param in net.named_parameters():
-                # print('initializing momentum buffer')
-                buf[name] = torch.zeros_like(param.data).to(args.device)
 elif optim_name == 'kbfgs':
     print('K-BFGS optimizer selected.')
     optimizer = KBFGSOptimizer(net,
@@ -224,16 +219,10 @@ if not os.path.isdir(log_dir):
     os.makedirs(log_dir)
 writer = SummaryWriter(log_dir)
 
-loss_prev = 0.
-taylor_appx_prev = 0.
 
-non_descent = 0
 def train(epoch):
     print('\nEpoch: %d' % epoch)
     global alpha_LM
-    global loss_prev
-    global taylor_appx_prev
-    global non_descent
     net.train()
     train_loss = 0
     correct = 0
@@ -363,8 +352,7 @@ def train(epoch):
                             if hasattr(m, "AX"):
 
                                 if args.low_rank.lower() == 'true':
-                                    # print('low_rank coomputations')
-                                    ###### testing low rank structure
+                                    ###### using low rank structure
                                     U = m.U
                                     S = m.S
                                     V = m.V
@@ -375,11 +363,13 @@ def train(epoch):
                                     grad_prod = V @ grad_reshape.t().reshape(-1, 1)
                                     grad_prod = torch.diag(S) @ grad_prod
                                     grad_prod = U @ grad_prod
+                                    
                                     grad_prod = grad_prod.squeeze()
                                     v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
-                                    gv= U.t() @ v.unsqueeze(1)
+                                    gv = U.t() @ v.unsqueeze(1)
                                     gv = torch.diag(S) @ gv
                                     gv = V.t() @ gv
+
                                     gv = gv.reshape(grad_reshape.shape[1], grad_reshape.shape[0]).t()
                                     gv = gv.view_as(grad)
                                     gv = gv / n
