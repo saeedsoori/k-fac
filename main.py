@@ -497,7 +497,7 @@ def test(epoch):
     desc = ('[%s][LR=%s] Loss: %.3f | Acc: %.3f%% (%d/%d)'
             % (tag,lr_scheduler.get_lr()[0], test_loss/(0+1), 0, correct, total))
 
-    prog_bar = tqdm(enumerate(testloader), total=len(testloader), desc=desc, leave=True)
+    prog_bar = tqdm(enumerate(testloader), total=len(testloader), desc=desc, position=0, leave=True)
     with torch.no_grad():
         for batch_idx, (inputs, targets) in prog_bar:
             inputs, targets = inputs.to(args.device), targets.to(args.device)
