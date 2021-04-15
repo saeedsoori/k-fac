@@ -62,11 +62,16 @@ parser.add_argument('--TCov', default=20, type=int)
 parser.add_argument('--TScal', default=10, type=int)
 parser.add_argument('--TInv', default=100, type=int)
 
+# for ngd optimizer
 parser.add_argument('--freq', default=10, type=int)
 parser.add_argument('--low_rank', default='false', type=str)
 parser.add_argument('--gamma', default=0.95, type=float)
 parser.add_argument('--batchnorm', default='false', type=str)
 parser.add_argument('--step_info', default='false', type=str)
+
+# for adam optimizer
+parser.add_argument('--epsilon', default=1e-8, type=float)
+
 
 
 parser.add_argument('--prefix', default=None, type=str)
@@ -148,7 +153,8 @@ elif optim_name == 'ngd':
     print('NGD optimizer selected.')
     optimizer = optim.SGD(net.parameters(),
                           lr=args.learning_rate,
-                          momentum=args.momentum)
+                          momentum=args.momentum,
+                          weight_decay=args.weight_decay)
 
 elif optim_name == 'kbfgs':
     print('K-BFGS optimizer selected.')
@@ -160,6 +166,13 @@ elif optim_name == 'kbfgs':
                                damping=args.damping,
                                TCov=args.TCov,
                                TInv=args.TInv)
+elif optim_name == 'adam':
+    print('Adam optimizer selected.')
+    optimizer = optim.Adam(net.parameters(),
+                          lr=args.learning_rate,
+                          weight_decay=args.weight_decay,
+                          eps=args.epsilon)
+
 else:
     raise NotImplementedError
 
@@ -238,7 +251,7 @@ def train(epoch):
     prog_bar = tqdm(enumerate(trainloader), total=len(trainloader), desc=desc, leave=True)
     for batch_idx, (inputs, targets) in prog_bar:
 
-        if optim_name in ['kfac', 'ekfac', 'sgd'] :
+        if optim_name in ['kfac', 'ekfac', 'sgd', 'adam'] :
             inputs, targets = inputs.to(args.device), targets.to(args.device)
             optimizer.zero_grad()
             outputs = net(inputs)
