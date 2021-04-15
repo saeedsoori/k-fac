@@ -22,8 +22,9 @@ import matplotlib.pylab as plt
 
 from torch import einsum, matmul, eye
 from torch.linalg import inv
+import numpy as np
 # for REPRODUCIBILITY
-torch.manual_seed(0)
+# torch.manual_seed(0)
 
 # fetch args
 parser = argparse.ArgumentParser()
@@ -61,16 +62,11 @@ parser.add_argument('--TCov', default=20, type=int)
 parser.add_argument('--TScal', default=10, type=int)
 parser.add_argument('--TInv', default=100, type=int)
 
-parser.add_argument('--eps', default=0.25, type=float)
-parser.add_argument('--boost', default=1.001, type=float)
-parser.add_argument('--drop', default=0.99, type=float)
-parser.add_argument('--adaptive', default='false', type=str)
-parser.add_argument('--alpha', default=0.1, type=float)
-parser.add_argument('--taw', default=0.01, type=float)
 parser.add_argument('--freq', default=10, type=int)
 parser.add_argument('--low_rank', default='false', type=str)
 parser.add_argument('--gamma', default=0.95, type=float)
 parser.add_argument('--batchnorm', default='false', type=str)
+parser.add_argument('--step_info', default='false', type=str)
 
 
 parser.add_argument('--prefix', default=None, type=str)
@@ -192,13 +188,6 @@ if optim_name == 'ngd':
 
 
 damping = args.damping
-epsilon = args.eps
-boost = args.boost
-drop = args.drop
-alpha_LM = args.alpha
-taw = args.taw
-
-
 start_epoch = 0
 best_acc = 0
 if args.resume:
@@ -219,17 +208,26 @@ if not os.path.isdir(log_dir):
     os.makedirs(log_dir)
 writer = SummaryWriter(log_dir)
 
+TRAIN_INFO  = {}
+TRAIN_INFO['train_loss'] = []
+TRAIN_INFO['test_loss'] = []
+TRAIN_INFO['train_acc'] = []
+TRAIN_INFO['test_acc'] = []
+TRAIN_INFO['total_time'] = []
+TRAIN_INFO['epoch_time'] = []
+
+
 
 def train(epoch):
     print('\nEpoch: %d' % epoch)
-    global alpha_LM
     net.train()
     train_loss = 0
     correct = 0
     total = 0
+    step_st_time = time.time()
+    epoch_time = 0
     print('\nKFAC/KBFGS damping: %f' % damping)
-    print('\nNGD damping: %f' % (alpha_LM + taw))
-    st_time = time.time()
+    print('\nNGD damping: %f' % (damping))
 
     # 
     desc = ('[%s][LR=%s] Loss: %.3f | Acc: %.3f%% (%d/%d)' %
@@ -274,7 +272,7 @@ def train(epoch):
                 # net.set_require_grad(True)
 
                 outputs = net(inputs)
-                damp = alpha_LM + taw
+                damp = damping
                 loss = criterion(outputs, targets)
                 loss.backward(retain_graph=True)
 
@@ -311,7 +309,7 @@ def train(epoch):
                 # net.set_require_grad(True)
 
                 outputs = net(inputs)
-                damp = alpha_LM + taw
+                damp = damping
                 loss = criterion(outputs, targets)
                 loss.backward(retain_graph=True)
 
@@ -456,10 +454,25 @@ def train(epoch):
         desc = ('[%s][LR=%s] Loss: %.3f | Acc: %.3f%% (%d/%d)' %
                 (tag, lr_scheduler.get_last_lr()[0], train_loss / (batch_idx + 1), 100. * correct / total, correct, total))
         prog_bar.set_description(desc, refresh=True)
-        # if batch_idx % 10 == 0:
-        #   print(time.time() - st_time, loss.item(),  100. * correct / total)
+        if args.step_info == 'true' and (batch_idx % 100 == 0 or batch_idx == len(prog_bar) - 1):
+            step_saved_time = time.time() - step_st_time
+            epoch_time += step_saved_time
+            test_acc, test_loss = test(epoch)
+            TRAIN_INFO['train_acc'].append(float("{:.4f}".format(100. * correct / total)))
+            TRAIN_INFO['test_acc'].append(float("{:.4f}".format(test_acc)))
+            TRAIN_INFO['train_loss'].append(float("{:.4f}".format(train_loss/(batch_idx + 1))))
+            TRAIN_INFO['test_loss'].append(float("{:.4f}".format(test_loss)))
+            TRAIN_INFO['total_time'].append(float("{:.4f}".format(step_saved_time)))
+            step_st_time = time.time()
+
     writer.add_scalar('train/loss', train_loss/(batch_idx + 1), epoch)
     writer.add_scalar('train/acc', 100. * correct / total, epoch)
+    acc = 100. * correct / total
+    train_loss = train_loss/(batch_idx + 1)
+    if args.step_info == 'true':
+        TRAIN_INFO['epoch_time'].append(float("{:.4f}".format(epoch_time)))
+
+    return acc, train_loss
 
 
 def test(epoch):
@@ -489,7 +502,6 @@ def test(epoch):
 
     # Save checkpoint.
     acc = 100.*correct/total
-
     writer.add_scalar('test/loss', test_loss / (batch_idx + 1), epoch)
     writer.add_scalar('test/acc', 100. * correct / total, epoch)
 
@@ -509,6 +521,9 @@ def test(epoch):
                                                      args.network,
                                                      args.depth))
         best_acc = acc
+
+    test_loss = test_loss/(batch_idx + 1)
+    return acc, test_loss
 
 def optimal_JJT(outputs, targets, batch_size, damping=1.0, alpha=0.95, low_rank='false', gamma=0.95):
     jac_list = 0
@@ -556,13 +571,97 @@ def memory_cleanup(module):
 
 
 def main():
+    train_acc, train_loss = get_accuracy(trainloader)
+    test_acc, test_loss = get_accuracy(testloader)
+    TRAIN_INFO['train_acc'].append(float("{:.4f}".format(train_acc)))
+    TRAIN_INFO['test_acc'].append(float("{:.4f}".format(test_acc)))
+    TRAIN_INFO['train_loss'].append(float("{:.4f}".format(train_loss)))
+    TRAIN_INFO['test_loss'].append(float("{:.4f}".format(test_loss)))
+    TRAIN_INFO['total_time'].append(0.)
+
+    st_time = time.time()
     for epoch in range(start_epoch, args.epoch):
-        train(epoch)
-        test(epoch)
+        ep_st_time = time.time()
+        train_acc, train_loss = train(epoch)
+        if args.step_info == "false":
+            TRAIN_INFO['train_acc'].append(float("{:.4f}".format(train_acc)))
+            TRAIN_INFO['train_loss'].append(float("{:.4f}".format(train_loss)))
+            TRAIN_INFO['total_time'].append(float("{:.4f}".format(time.time() - st_time)))
+            TRAIN_INFO['epoch_time'].append(float("{:.4f}".format(time.time() - ep_st_time)))
+
+        test_acc, test_loss = test(epoch)
+        if args.step_info == "false":
+            TRAIN_INFO['test_loss'].append(float("{:.4f}".format(test_loss)))
+            TRAIN_INFO['test_acc'].append(float("{:.4f}".format(test_acc)))
+        
         lr_scheduler.step()
 
+    if args.step_info == "true":
+        a = TRAIN_INFO['total_time']
+        a = np.cumsum(a)
+        TRAIN_INFO['total_time'] = a
+
+    # print(TRAIN_INFO)
+    # save the train info to file:
+    fname = "lr_" + str(args.learning_rate) + "_b_" + str(args.batch_size)
+    if optim_name in ['kfac', 'ekfac', 'ngd']:
+        fname = fname + "_d_" + str(args.damping) + "_m_" + str(args.momentum) 
+    elif optim_name == 'adam':
+        fname = fname + "_" + str(args.epsilon) 
+    elif optim_name == 'sgd':
+        fname = fname + "_m_" + str(args.momentum) 
+
+
+    fname = fname + str(np.random.rand()) 
+    path = "./" + args.dataset + "/" + args.network + "/" + args.optimizer
+    if not os.path.exists(path):
+        try:
+            os.makedirs(path)
+        except OSError:
+            print ("Creation of the directory %s failed" % path)
+        else:
+            print ("Successfully created the directory %s " % path)
+    
+    f = open( path + "/" + fname + ".csv", 'w')
+    f.write('time(s), train_loss, test_loss, train_acc, test_acc, epoch_time(s)\n')
+    for i in range(len(TRAIN_INFO['total_time'])):
+        t1 = TRAIN_INFO['total_time'][i]
+        t2 = TRAIN_INFO['train_loss'][i]
+        t3 = TRAIN_INFO['test_loss'][i]
+        t4 = TRAIN_INFO['train_acc'][i]
+        t5 = TRAIN_INFO['test_acc'][i]
+        line = str(t1) + ", " + str(t2) + ", " + str(t3) + ", " + str(t4) + ", " + str(t5) 
+        if i < len(TRAIN_INFO['epoch_time']):
+            line = line + ", " + str(TRAIN_INFO['epoch_time'][i]) + "\n"
+        else:
+            line = line + "\n"
+        f.write(line) 
+    f.close()
     return best_acc
 
+
+def get_accuracy(data):
+    net.eval()
+    total_loss = 0
+    correct = 0
+    total = 0
+
+    with torch.no_grad():
+        for batch_idx, (inputs, targets) in enumerate(data):
+            inputs, targets = inputs.to(args.device), targets.to(args.device)
+            outputs = net(inputs)
+            loss = criterion(outputs, targets)
+
+            total_loss += loss.item()
+            _, predicted = outputs.max(1)
+            total += targets.size(0)
+            correct += predicted.eq(targets).sum().item()
+
+
+    acc = 100.*correct/total
+    loss = total_loss / (batch_idx + 1)
+    
+    return acc, loss
 
 if __name__ == '__main__':
     main()
