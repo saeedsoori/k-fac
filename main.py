@@ -72,7 +72,8 @@ parser.add_argument('--step_info', default='false', type=str)
 # for adam optimizer
 parser.add_argument('--epsilon', default=1e-8, type=float)
 
-
+# for K-BFGS(L) optimizer
+parser.add_argument('--num_s_y_pairs', default=100, type=int)
 
 parser.add_argument('--prefix', default=None, type=str)
 args = parser.parse_args()
@@ -175,7 +176,8 @@ elif optim_name == 'kbfgsl':
                                 stat_decay=args.stat_decay,
                                 damping=args.damping,
                                 TCov=args.TCov,
-                                TInv=args.TInv)
+                                TInv=args.TInv,
+                                num_s_y_pairs=args.num_s_y_pairs)
 elif optim_name == 'adam':
     print('Adam optimizer selected.')
     optimizer = optim.Adam(net.parameters(),
