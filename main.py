@@ -1,7 +1,7 @@
 '''Train CIFAR10/CIFAR100 with PyTorch.'''
 import argparse
 import os
-from optimizers import (KFACOptimizer, EKFACOptimizer, KBFGSOptimizer)
+from optimizers import (KFACOptimizer, EKFACOptimizer, KBFGSOptimizer, KBFGSLOptimizer)
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -166,6 +166,16 @@ elif optim_name == 'kbfgs':
                                damping=args.damping,
                                TCov=args.TCov,
                                TInv=args.TInv)
+elif optim_name == 'kbfgsl':
+    print('K-BFGS(L) optimizer selected.')
+    optimizer = KBFGSLOptimizer(net,
+                                lr=args.learning_rate,
+                                momentum=args.momentum,
+                                weight_decay=args.weight_decay,
+                                stat_decay=args.stat_decay,
+                                damping=args.damping,
+                                TCov=args.TCov,
+                                TInv=args.TInv)
 elif optim_name == 'adam':
     print('Adam optimizer selected.')
     optimizer = optim.Adam(net.parameters(),
@@ -267,7 +277,7 @@ def train(epoch):
                 optimizer.zero_grad()  # clear the gradient for computing true-fisher.
             loss.backward()
             optimizer.step()
-        elif optim_name == 'kbfgs':
+        elif optim_name in ['kbfgs', 'kbfgsl']:
             inputs, targets = inputs.to(args.device), targets.to(args.device)
             optimizer.zero_grad()
             outputs = net.forward(inputs)
