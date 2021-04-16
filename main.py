@@ -53,6 +53,7 @@ parser.add_argument('--batch_size', default=64, type=int)
 parser.add_argument('--epoch', default=100, type=int)
 parser.add_argument('--milestone', default=None, type=str)
 parser.add_argument('--learning_rate', default=0.01, type=float)
+parser.add_argument('--learning_rate_decay', default=0.1, type=float)
 parser.add_argument('--momentum', default=0.9, type=float)
 parser.add_argument('--stat_decay', default=0.95, type=float)
 parser.add_argument('--damping', default=1e-3, type=float)
@@ -189,10 +190,10 @@ else:
     raise NotImplementedError
 
 if args.milestone is None:
-    lr_scheduler = MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.75)], gamma=0.1)
+    lr_scheduler = MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.75)], gamma=args.learning_rate_decay)
 else:
     milestone = [int(_) for _ in args.milestone.split(',')]
-    lr_scheduler = MultiStepLR(optimizer, milestones=milestone, gamma=0.1)
+    lr_scheduler = MultiStepLR(optimizer, milestones=milestone, gamma=args.learning_rate_decay)
 
 # init criterion
 criterion = nn.CrossEntropyLoss()
