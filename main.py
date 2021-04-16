@@ -1,7 +1,7 @@
 '''Train CIFAR10/CIFAR100 with PyTorch.'''
 import argparse
 import os
-from optimizers import (KFACOptimizer, EKFACOptimizer, KBFGSOptimizer)
+from optimizers import (KFACOptimizer, EKFACOptimizer, KBFGSOptimizer, KBFGSLOptimizer)
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -53,6 +53,7 @@ parser.add_argument('--batch_size', default=64, type=int)
 parser.add_argument('--epoch', default=100, type=int)
 parser.add_argument('--milestone', default=None, type=str)
 parser.add_argument('--learning_rate', default=0.01, type=float)
+parser.add_argument('--learning_rate_decay', default=0.1, type=float)
 parser.add_argument('--momentum', default=0.9, type=float)
 parser.add_argument('--stat_decay', default=0.95, type=float)
 parser.add_argument('--damping', default=1e-3, type=float)
@@ -72,7 +73,8 @@ parser.add_argument('--step_info', default='false', type=str)
 # for adam optimizer
 parser.add_argument('--epsilon', default=1e-8, type=float)
 
-
+# for K-BFGS(L) optimizer
+parser.add_argument('--num_s_y_pairs', default=100, type=int)
 
 parser.add_argument('--prefix', default=None, type=str)
 args = parser.parse_args()
@@ -166,6 +168,17 @@ elif optim_name == 'kbfgs':
                                damping=args.damping,
                                TCov=args.TCov,
                                TInv=args.TInv)
+elif optim_name == 'kbfgsl':
+    print('K-BFGS(L) optimizer selected.')
+    optimizer = KBFGSLOptimizer(net,
+                                lr=args.learning_rate,
+                                momentum=args.momentum,
+                                weight_decay=args.weight_decay,
+                                stat_decay=args.stat_decay,
+                                damping=args.damping,
+                                TCov=args.TCov,
+                                TInv=args.TInv,
+                                num_s_y_pairs=args.num_s_y_pairs)
 elif optim_name == 'adam':
     print('Adam optimizer selected.')
     optimizer = optim.Adam(net.parameters(),
@@ -177,10 +190,10 @@ else:
     raise NotImplementedError
 
 if args.milestone is None:
-    lr_scheduler = MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.75)], gamma=0.1)
+    lr_scheduler = MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.75)], gamma=args.learning_rate_decay)
 else:
     milestone = [int(_) for _ in args.milestone.split(',')]
-    lr_scheduler = MultiStepLR(optimizer, milestones=milestone, gamma=0.1)
+    lr_scheduler = MultiStepLR(optimizer, milestones=milestone, gamma=args.learning_rate_decay)
 
 # init criterion
 criterion = nn.CrossEntropyLoss()
@@ -267,7 +280,7 @@ def train(epoch):
                 optimizer.zero_grad()  # clear the gradient for computing true-fisher.
             loss.backward()
             optimizer.step()
-        elif optim_name == 'kbfgs':
+        elif optim_name in ['kbfgs', 'kbfgsl']:
             inputs, targets = inputs.to(args.device), targets.to(args.device)
             optimizer.zero_grad()
             outputs = net.forward(inputs)
