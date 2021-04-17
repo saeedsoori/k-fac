@@ -153,10 +153,18 @@ elif optim_name == 'ekfac':
                                TInv=args.TInv)
 elif optim_name == 'ngd':
     print('NGD optimizer selected.')
+    # optimizer = optim.SGD(net.parameters(),
+    #                       lr=args.learning_rate,
+    #                       momentum=args.momentum,
+    #                       weight_decay=args.weight_decay)
     optimizer = optim.SGD(net.parameters(),
-                          lr=args.learning_rate,
-                          momentum=args.momentum,
-                          weight_decay=args.weight_decay)
+                          lr=args.learning_rate)
+    buf = {}
+    if args.momentum != 0:
+        for name, param in net.named_parameters():
+                # print('initializing momentum buffer')
+                buf[name] = torch.zeros_like(param.data).to(args.device) 
+
 
 elif optim_name == 'kbfgs':
     print('K-BFGS optimizer selected.')
@@ -469,7 +477,23 @@ def train(epoch):
             for name, param in net.named_parameters():
                 param.grad.mul_(nu)
 
-            optimizer.step()
+            # optimizer.step()
+            # manual optimizing:
+            with torch.no_grad():
+                for name, param in net.named_parameters():
+                    d_p = param.grad.data
+                    # apply weight decay
+                    if args.weight_decay != 0:
+                        d_p.add_(args.weight_decay, param.data)
+
+                    # apply momentum
+                    if args.momentum != 0:
+                        buf[name].mul_(args.momentum).add_(d_p)
+                        d_p.copy_(buf[name])
+
+
+                    lr = lr_scheduler.get_last_lr()[0]
+                    param.data.add_(-lr, d_p)
 
             
         
