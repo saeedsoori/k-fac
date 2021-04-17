@@ -35,7 +35,7 @@ class KBFGSLOptimizer(optim.Optimizer):
         self.CovGHandler = ComputeCovG()
         self.batch_averaged = batch_averaged
 
-        self.known_modules = {'Linear'}
+        self.known_modules = {'Linear', 'Conv2d'}
 
         self.modules = []
         self.pre_activations, self.next_pre_activations = {}, {}
@@ -77,8 +77,7 @@ class KBFGSLOptimizer(optim.Optimizer):
         if torch.is_grad_enabled() and self.steps % self.TCov == 0:
             if m.__class__.__name__ == "Conv2d":
                 # KF-QN-CNN use an estimate over a batch instead of running estimate
-                # self.m_aa[m], self.a_avg[m] = self.CovAHandler(input[0].data, m, bfgs=True)
-                raise NotImplementedError
+                self.m_aa[m], self.a_avg[m] = self.CovAHandler(input[0].data, m, bfgs=True)
             elif m.__class__.__name__ == "Linear":
                 aa, self.a_avg[m] = self.CovAHandler(input[0].data, m, bfgs=True)
                 # initialize buffer
@@ -137,8 +136,8 @@ class KBFGSLOptimizer(optim.Optimizer):
     def _get_LBFGS_Hv(self, m, v):
         if m not in self.s: # init
             return v
-        is_scalar = len(v.size())
-        if is_scalar == 1:
+        is_scalar = (len(v.size()) == 1)
+        if is_scalar:
             v = v.unsqueeze(1)
 
         gamma = self.gamma
@@ -148,7 +147,7 @@ class KBFGSLOptimizer(optim.Optimizer):
 
         Hv = gamma * v + torch.mm(self.left_matrix[m], torch.mm(self.right_matrix[m], v))
         if is_scalar:
-            Hv = Hv.squeeze()
+            Hv = Hv.squeeze(1)
         return Hv
 
     def _get_BFGS_update(self, H, s, y, g_k=None):
@@ -177,18 +176,19 @@ class KBFGSLOptimizer(optim.Optimizer):
 
         return H, 0
 
-    def _get_DpDlm_damping(self, H, s, y, mu1, mu2):
+    def _get_DpDlm_damping(self, m, s, y, mu1, mu2):
         s = s.view(s.size(0))
         y = y.view(y.size(0))
-        v0 = torch.mv(H, y)
-        v1 = torch.dot(s, y)
-        v2 = torch.dot(y, v0)
-        if v1 < mu1 * v2:
-            theta1 = (1 - mu1) * v2 / (v2 - v1)
+        Hy = self._get_LBFGS_Hv(m, y)
+        Hy = Hy.view(Hy.size(0))
+        sTy = torch.dot(s, y)
+        yHy = torch.dot(y, Hy)
+        if sTy < mu1 * yHy:
+            theta1 = (1 - mu1) * yHy / (yHy - sTy)
         else:
             theta1 = 1
         # Powell's damping on H
-        s_ = theta1 * s + (1 - theta1) * v0
+        s_ = theta1 * s + (1 - theta1) * Hy
         # LM damping on inv(H)
         y_ = y + mu2 * s_
         return s_, y_
@@ -308,7 +308,7 @@ class KBFGSLOptimizer(optim.Optimizer):
         self.y_g[m] = self.stat_decay * self.y_g[m] + (1 - self.stat_decay) * (self.next_g_avg[n] - self.g_avg[m]).transpose(0, 1)
 
         if m.__class__.__name__ == 'Conv2d':
-            raise NotImplementedError
+            s_g_, y_g_ = self._get_DpDlm_damping(m, self.s_g[m], self.y_g[m], 0.2, math.sqrt(damping))
         elif m.__class__.__name__ == 'Linear':
             s_g_, y_g_ = self._get_DD_damping(m, self.s_g[m], self.y_g[m], 0.2, math.sqrt(damping))
         else:
@@ -328,8 +328,7 @@ class KBFGSLOptimizer(optim.Optimizer):
         :return: a matrix form of the gradient. it should be a [output_dim, input_dim] matrix.
         """
         if classname == 'Conv2d':
-            # p_grad_mat = m.weight.grad.data.view(m.weight.grad.data.size(0), -1)  # n_filters * (in_c * kw * kh)
-            raise NotImplementedError
+            p_grad_mat = m.weight.grad.data.view(m.weight.grad.data.size(0), -1)  # n_filters * (in_c * kw * kh)
         else:
             p_grad_mat = m.weight.grad.data
         if m.bias is not None:
