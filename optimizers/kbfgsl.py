@@ -245,11 +245,11 @@ class KBFGSLOptimizer(optim.Optimizer):
 
         if (not torch.isinf(sTs)) and (yTs.item() > 10**(-4) * sTs.item() * math.sqrt(gTg)):
             if m in self.s and (len(self.s[m]) == self.num_s_y_pairs):
-                self.R_inv[m] = self.R_inv[1:, 1:]
-                self.yTy = self.yTy[1:, 1:]
+                self.R_inv[m] = self.R_inv[m][1:, 1:]
+                self.yTy[m] = self.yTy[m][1:, 1:]
                 self.s[m] = self.s[m][1:]
                 self.y[m] = self.y[m][1:]
-                self.D_diag[m] = self.D_diag[1:]
+                self.D_diag[m] = self.D_diag[m][1:]
 
             if m not in self.s: # init
                 self.s[m] = s.t()
