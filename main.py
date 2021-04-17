@@ -601,24 +601,6 @@ def optimal_JJT_fused(outputs, targets, batch_size, damping=1.0):
     return update_list, loss
     
 
-def memory_cleanup(module):
-    """Remove I/O stored by backpack during the forward pass.
-
-    Deletes the attributes created by `hook_store_io` and `hook_store_shapes`.
-    """
-    if hasattr(module, "output"):
-        delattr(module, "output")
-    if hasattr(module, "output_shape"):
-        delattr(module, "output_shape")
-    i = 0
-    while hasattr(module, "input{}".format(i)):
-        delattr(module, "input{}".format(i))
-        i += 1
-    i = 0
-    while hasattr(module, "input{}_shape".format(i)):
-        delattr(module, "input{}_shape".format(i))
-        i += 1
-
 
 def main():
     train_acc, train_loss = get_accuracy(trainloader)

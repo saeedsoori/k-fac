@@ -1,1 +1,0 @@
-python main.py --network convnet  --low_rank true --gamma 0.95 --dataset mnist --device cpu --optimizer ngd  --epoch 5 --learning_rate 0.1  --freq 20 --adaptive false  --alpha 0.2 --taw 0.1 --weight_decay 0.003 --momentum 0.5 --kl_clip 0.001 --boost 1.01 --drop 0.99
