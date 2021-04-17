@@ -482,15 +482,15 @@ def train(epoch):
             with torch.no_grad():
                 for name, param in net.named_parameters():
                     d_p = param.grad.data
-                    # apply weight decay
-                    if args.weight_decay != 0:
-                        d_p.add_(args.weight_decay, param.data)
 
                     # apply momentum
                     if args.momentum != 0:
                         buf[name].mul_(args.momentum).add_(d_p)
                         d_p.copy_(buf[name])
 
+                    # apply weight decay
+                    if args.weight_decay != 0:
+                        d_p.add_(args.weight_decay, param.data)
 
                     lr = lr_scheduler.get_last_lr()[0]
                     param.data.add_(-lr, d_p)
