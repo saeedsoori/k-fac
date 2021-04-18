@@ -339,6 +339,13 @@ def train(epoch):
                 _, predicted = outputs.max(1) 
                 # del update_list 
                 del outputs
+                ### cleaning memory
+                if module_names == 'children':
+                    all_modules = net.children()
+                elif module_names == 'features':
+                    all_modules = net.features.children()
+                for m in all_modules:
+                    memory_cleanup(m)
                 # grad_new = grad_org
 
             else:
@@ -349,7 +356,7 @@ def train(epoch):
                 outputs = net(inputs)
                 damp = damping
                 loss = criterion(outputs, targets)
-                loss.backward(retain_graph=True)
+                loss.backward(retain_graph=False)
 
                 # storing original gradient for later use
                 grad_org = []
@@ -359,6 +366,13 @@ def train(epoch):
                 #     grad_dict[name] = param.grad.clone()
                 grad_org = torch.cat(grad_org, 1)
 
+                ### cleaning memory
+                if module_names == 'children':
+                    all_modules = net.children()
+                elif module_names == 'features':
+                    all_modules = net.features.children()
+                for m in all_modules:
+                    memory_cleanup(m)
                 ###### now we have to compute the true fisher
                 # with torch.no_grad():
                 # gg = torch.nn.functional.softmax(outputs, dim=1)
