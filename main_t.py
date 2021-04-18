@@ -197,11 +197,11 @@ elif optim_name == 'adam':
 else:
     raise NotImplementedError
 
-if args.milestone is None:
-    lr_scheduler = MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.75)], gamma=args.learning_rate_decay)
-else:
-    milestone = [int(_) for _ in args.milestone.split(',')]
-    lr_scheduler = MultiStepLR(optimizer, milestones=milestone, gamma=args.learning_rate_decay)
+# if args.milestone is None:
+#     lr_scheduler = MultiStepLR(optimizer, milestones=[int(args.epoch*0.5), int(args.epoch*0.75)], gamma=args.learning_rate_decay)
+# else:
+#     milestone = [int(_) for _ in args.milestone.split(',')]
+#     lr_scheduler = MultiStepLR(optimizer, milestones=milestone, gamma=args.learning_rate_decay)
 
 # init criterion
 criterion = nn.CrossEntropyLoss()
@@ -265,9 +265,9 @@ def train(epoch):
 
     # 
     desc = ('[%s][LR=%s] Loss: %.3f | Acc: %.3f%% (%d/%d)' %
-            (tag, lr_scheduler.get_last_lr()[0], 0, 0, correct, total))
+            (tag, 0.1, 0, 0, correct, total))
 
-    writer.add_scalar('train/lr', lr_scheduler.get_last_lr()[0], epoch)
+    writer.add_scalar('train/lr', 0.1, epoch)
 
     prog_bar = tqdm(enumerate(trainloader), total=len(trainloader), desc=desc, leave=True)
     for batch_idx, (inputs, targets) in prog_bar:
@@ -469,7 +469,7 @@ def train(epoch):
 
 
             ##### do kl clip
-            lr = lr_scheduler.get_last_lr()[0]
+            lr = 0.1
             vg_sum = 0
             vg_sum += (grad_new * grad_org ).sum()
             vg_sum = vg_sum * (lr ** 2)
@@ -492,7 +492,7 @@ def train(epoch):
                     if args.weight_decay != 0:
                         d_p.add_(args.weight_decay, param.data)
 
-                    lr = lr_scheduler.get_last_lr()[0]
+                    lr = 0.1
                     param.data.add_(-lr, d_p)
 
             
@@ -502,7 +502,7 @@ def train(epoch):
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
         desc = ('[%s][LR=%s] Loss: %.3f | Acc: %.3f%% (%d/%d)' %
-                (tag, lr_scheduler.get_last_lr()[0], train_loss / (batch_idx + 1), 100. * correct / total, correct, total))
+                (tag, 0.1, train_loss / (batch_idx + 1), 100. * correct / total, correct, total))
         prog_bar.set_description(desc, refresh=True)
         if args.step_info == 'true' and (batch_idx % 100 == 0 or batch_idx == len(prog_bar) - 1):
             step_saved_time = time.time() - step_st_time
@@ -532,7 +532,7 @@ def test(epoch):
     correct = 0
     total = 0
     desc = ('[%s][LR=%s] Loss: %.3f | Acc: %.3f%% (%d/%d)'
-            % (tag,lr_scheduler.get_lr()[0], test_loss/(0+1), 0, correct, total))
+            % (tag,0.1, test_loss/(0+1), 0, correct, total))
 
     prog_bar = tqdm(enumerate(testloader), total=len(testloader), desc=desc, position=0, leave=True)
     with torch.no_grad():
@@ -547,7 +547,7 @@ def test(epoch):
             correct += predicted.eq(targets).sum().item()
 
             desc = ('[%s][LR=%s] Loss: %.3f | Acc: %.3f%% (%d/%d)'
-                    % (tag, lr_scheduler.get_lr()[0], test_loss / (batch_idx + 1), 100. * correct / total, correct, total))
+                    % (tag, 0.1, test_loss / (batch_idx + 1), 100. * correct / total, correct, total))
             prog_bar.set_description(desc, refresh=True)
 
     # Save checkpoint.
@@ -626,7 +626,7 @@ def main():
             TRAIN_INFO['test_loss'].append(float("{:.4f}".format(test_loss)))
             TRAIN_INFO['test_acc'].append(float("{:.4f}".format(test_acc)))
         
-        lr_scheduler.step()
+        
 
     if args.step_info == "true":
         a = TRAIN_INFO['total_time']
