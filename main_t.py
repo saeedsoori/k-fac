@@ -308,7 +308,7 @@ def train(epoch):
                 outputs = net(inputs)
                 damp = damping
                 loss = criterion(outputs, targets)
-                loss.backward(retain_graph=True)
+                loss.backward()
 
                 # storing original gradient for later use
                 grad_org = []
