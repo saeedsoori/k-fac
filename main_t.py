@@ -323,7 +323,7 @@ def train(epoch):
                 # gg = torch.nn.functional.softmax(outputs, dim=1)
                     sampled_y = torch.multinomial(torch.nn.functional.softmax(outputs, dim=1),1).squeeze().to(args.device)
                 
-                update_list, loss = optimal_JJT(outputs, sampled_y, args.batch_size, damping=damp, alpha=0.95, low_rank=args.low_rank, gamma=args.gamma)
+                # update_list, loss = optimal_JJT(outputs, sampled_y, args.batch_size, damping=damp, alpha=0.95, low_rank=args.low_rank, gamma=args.gamma)
                 # optimizer.zero_grad()
                 # update_list, loss = optimal_JJT_fused(outputs, sampled_y, args.batch_size, damping=damp)
 
@@ -331,12 +331,13 @@ def train(epoch):
    
                 # last part of SMW formula
                 grad_new = []
+                # grad_dict = {}
                 for name, param in net.named_parameters():
-                    param.grad.copy_(update_list[name])
                     grad_new.append(param.grad.reshape(1, -1))
-                grad_new = torch.cat(grad_new, 1)  
+                #     grad_dict[name] = param.grad.clone()
+                grad_new = torch.cat(grad_new, 1) 
                 _, predicted = outputs.max(1) 
-                del update_list 
+                # del update_list 
                 del outputs
                 # grad_new = grad_org
 
