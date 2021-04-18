@@ -70,3 +70,4 @@ from .preresnet import *
 from .densenet import *
 from .inception import *
 from .googlenet import *
+from .xception import *
