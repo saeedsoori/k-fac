@@ -334,7 +334,8 @@ def train(epoch):
                 for name, param in net.named_parameters():
                     param.grad.copy_(update_list[name])
                     grad_new.append(param.grad.reshape(1, -1))
-                grad_new = torch.cat(grad_new, 1)   
+                grad_new = torch.cat(grad_new, 1)  
+                _, predicted = outputs.max(1) 
                 del update_list 
                 del outputs
                 # grad_new = grad_org
@@ -500,7 +501,7 @@ def train(epoch):
             
         
         train_loss += loss.item()
-        _, predicted = outputs.max(1)
+        
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
         desc = ('[%s][LR=%s] Loss: %.3f | Acc: %.3f%% (%d/%d)' %
