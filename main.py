@@ -693,7 +693,33 @@ def get_accuracy(data):
     acc = 100.*correct/total
     loss = total_loss / (batch_idx + 1)
     
+    ### cleaning memory
+    if module_names == 'children':
+        all_modules = net.children()
+    elif module_names == 'features':
+        all_modules = net.features.children()
+    for m in all_modules:
+        memory_cleanup(m)
     return acc, loss
+
+def memory_cleanup(module):
+    """Remove I/O stored by backpack during the forward pass.
+
+    Deletes the attributes created by `hook_store_io` and `hook_store_shapes`.
+    """
+    # if self.mem_clean_up:
+    if hasattr(module, "output"):
+        delattr(module, "output")
+    if hasattr(module, "output_shape"):
+        delattr(module, "output_shape")
+    i = 0
+    while hasattr(module, "input{}".format(i)):
+        delattr(module, "input{}".format(i))
+        i += 1
+    i = 0
+    while hasattr(module, "input{}_shape".format(i)):
+        delattr(module, "input{}_shape".format(i))
+        i += 1
 
 if __name__ == '__main__':
     main()
