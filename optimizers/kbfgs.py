@@ -103,9 +103,9 @@ class KBFGSOptimizer(optim.Optimizer):
             self.next_g_avg[module] = self.CovGHandler(grad_output[0].data, module, self.batch_averaged, bfgs=True)
 
     def _prepare_model(self, model, cloned=False, init_module=False):
-        print(model)
-
         if not cloned:
+            print(model)
+
             count = 0
             print("=> We keep following layers in KBFGS. ")
             for module in model.modules():
@@ -119,12 +119,12 @@ class KBFGSOptimizer(optim.Optimizer):
 
                     count += 1
         else:
-            print("=> We keep following layers (in cloned model) in KBFGS.")
+            # print("=> We keep following layers (in cloned model) in KBFGS.")
             for module in model.modules():
                 if module.__class__.__name__ in self.known_modules:
                     module.register_forward_hook(self._save_next_pre)
                     module.register_backward_hook(self._save_next_grad_output)
-                    print(module)
+                    # print(module)
 
     def _get_BFGS_update(self, H, s, y, g_k=None):
         # TODO(bmu): check if inplace operation
@@ -300,12 +300,11 @@ class KBFGSOptimizer(optim.Optimizer):
 
         self._update_grad(self.modules, updates)
         self._step(closure)
-        self.steps += 1
 
         if self.steps % self.TInv == 0:
             # clone model and do another fw-bw pass over this batch to compute next h and Dh
             # in order to update Hg
-            print('=> Another fw-bw pass for the following layers in KBFGS.')
+            # print('=> Another fw-bw pass for the following layers in KBFGS.')
 
             for handle in self.handles:
                 handle.remove()
@@ -327,7 +326,7 @@ class KBFGSOptimizer(optim.Optimizer):
             for module in model_new.modules():
                 if module.__class__.__name__ in self.known_modules:
                     new_modules.append(module)
-                    print('%s' % module)
+                    # print('%s' % module)
 
             l = 0 # layer index, the key used to match the parameters in the model and clone model
             for m in self.modules:
@@ -335,3 +334,5 @@ class KBFGSOptimizer(optim.Optimizer):
                 n = new_modules[l]
                 self._update_inv(m, damping, n)
                 l += 1
+
+        self.steps += 1
