@@ -68,3 +68,4 @@ from .resnext import *
 from .wrn import *
 from .preresnet import *
 from .densenet import *
+from .inception import *
