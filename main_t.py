@@ -335,6 +335,8 @@ def train(epoch):
                     param.grad.copy_(update_list[name])
                     grad_new.append(param.grad.reshape(1, -1))
                 grad_new = torch.cat(grad_new, 1)   
+                del update_list 
+                del outputs
                 # grad_new = grad_org
 
             else:
