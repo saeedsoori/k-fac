@@ -207,10 +207,10 @@ else:
 criterion = nn.CrossEntropyLoss()
 criterion_none = nn.CrossEntropyLoss(reduction='none')
 
-if optim_name == 'ngd':
-    extend(net)
-    extend(criterion)
-    extend(criterion_none)
+# if optim_name == 'ngd':
+#     extend(net)
+#     extend(criterion)
+#     extend(criterion_none)
     # print(net.state_dict())
 
 
