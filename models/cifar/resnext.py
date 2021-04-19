@@ -53,13 +53,13 @@ class ResNeXtBottleneck(nn.Module):
             self.shortcut.add_module('shortcut_bn', nn.BatchNorm2d(out_channels))
 
     def forward(self, x):
-        bottleneck = self.conv_reduce.forward(x)
-        bottleneck = F.relu(self.bn_reduce.forward(bottleneck), inplace=True)
-        bottleneck = self.conv_conv.forward(bottleneck)
-        bottleneck = F.relu(self.bn.forward(bottleneck), inplace=True)
-        bottleneck = self.conv_expand.forward(bottleneck)
-        bottleneck = self.bn_expand.forward(bottleneck)
-        residual = self.shortcut.forward(x)
+        bottleneck = self.conv_reduce(x)
+        bottleneck = F.relu(self.bn_reduce(bottleneck), inplace=True)
+        bottleneck = self.conv_conv(bottleneck)
+        bottleneck = F.relu(self.bn(bottleneck), inplace=True)
+        bottleneck = self.conv_expand(bottleneck)
+        bottleneck = self.bn_expand(bottleneck)
+        residual = self.shortcut(x)
         return F.relu(residual + bottleneck, inplace=True)
 
 
@@ -131,11 +131,11 @@ class CifarResNeXt(nn.Module):
         return block
 
     def forward(self, x):
-        x = self.conv_1_3x3.forward(x)
-        x = F.relu(self.bn_1.forward(x), inplace=True)
-        x = self.stage_1.forward(x)
-        x = self.stage_2.forward(x)
-        x = self.stage_3.forward(x)
+        x = self.conv_1_3x3(x)
+        x = F.relu(self.bn_1(x), inplace=True)
+        x = self.stage_1(x)
+        x = self.stage_2(x)
+        x = self.stage_3(x)
         x = F.avg_pool2d(x, 8, 1)
         x = x.view(-1, self.stages[3])
         return self.classifier(x)
