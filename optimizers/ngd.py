@@ -98,8 +98,8 @@ class NGDOptimizer(optim.Optimizer):
                 NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
                 self.m_NGD_Kernel[m] = NGD_inv
 
-                self.m_I[m][0] = []
-                self.m_G[m][0] = []
+                self.m_I[m] = (None, self.m_I[m][1])
+                self.m_G[m] = (None, self.m_G[m][1])
                 torch.cuda.empty_cache()
             else:
                 # SAEED: @TODO memory cleanup
@@ -128,7 +128,7 @@ class NGDOptimizer(optim.Optimizer):
                     V = V[0:index, :]
                     self.m_UV[m] = U, S, V
                 del I
-                self.m_I[m][1] = []
+                self.m_I[m] = None, self.m_I[m][1]
                 del AX_
                 del AX
                 torch.cuda.empty_cache()
