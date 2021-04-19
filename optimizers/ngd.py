@@ -97,6 +97,10 @@ class NGDOptimizer(optim.Optimizer):
                 NGD_kernel = (einsum('nqlp->nq', II * GG) + bias_kernel)/ n
                 NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
                 self.m_NGD_Kernel[m] = NGD_inv
+
+                del self.m_I[m][0]
+                del self.m_G[m][0]
+                torch.cuda.empty_cache()
             else:
                 # SAEED: @TODO memory cleanup
                 I = self.m_I[m][1]
@@ -123,7 +127,11 @@ class NGDOptimizer(optim.Optimizer):
                     S = S[0:index]
                     V = V[0:index, :]
                     self.m_UV[m] = U, S, V
-                
+                del I
+                del self.m_I[m][1]
+                del AX_
+                del AX
+                torch.cuda.empty_cache()
 
     def _get_natural_grad(self, m, damping):
         grad = m.weight.grad.data
