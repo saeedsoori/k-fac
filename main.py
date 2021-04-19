@@ -41,6 +41,8 @@ parser.add_argument('--compressionRate', default=2, type=int)
 # wrn, densenet
 parser.add_argument('--widen_factor', default=1, type=int)
 parser.add_argument('--dropRate', default=0.0, type=float)
+parser.add_argument('--base_width', default=24, type=int)
+parser.add_argument('--cardinality', default=32, type=int)
 
 
 parser.add_argument('--device', default='cuda', type=str)
@@ -94,7 +96,9 @@ net = get_network(args.network,
                   growthRate=args.growthRate,
                   compressionRate=args.compressionRate,
                   widen_factor=args.widen_factor,
-                  dropRate=args.dropRate)
+                  dropRate=args.dropRate,
+                  base_width=args.base_width,
+                  cardinality=args.cardinality)
 
 
 

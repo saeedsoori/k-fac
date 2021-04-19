@@ -72,3 +72,4 @@ from .inception import *
 from .googlenet import *
 from .xception import *
 from .nasnet import *
+from .resnext import *
