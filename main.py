@@ -283,11 +283,7 @@ def train(epoch):
 
     prog_bar = tqdm(enumerate(trainloader), total=len(trainloader), desc=desc, leave=True)
     for batch_idx, (inputs, targets) in prog_bar:
-        # if batch_idx > 100 and batch_idx < 110 :
-        #     for m in net.features.children():
-        #         if hasattr(m, 'weight'):
-        #             print(m.weight)
-        #             print(m.bias)
+
         if optim_name in ['kfac', 'ekfac', 'sgd', 'adam'] :
             inputs, targets = inputs.to(args.device), targets.to(args.device)
             optimizer.zero_grad()
@@ -637,13 +633,13 @@ def optimal_JJT_fused(outputs, targets, batch_size, damping=1.0):
 
 
 def main():
-    # train_acc, train_loss = get_accuracy(trainloader)
-    # test_acc, test_loss = get_accuracy(testloader)
-    # TRAIN_INFO['train_acc'].append(float("{:.4f}".format(train_acc)))
-    # TRAIN_INFO['test_acc'].append(float("{:.4f}".format(test_acc)))
-    # TRAIN_INFO['train_loss'].append(float("{:.4f}".format(train_loss)))
-    # TRAIN_INFO['test_loss'].append(float("{:.4f}".format(test_loss)))
-    # TRAIN_INFO['total_time'].append(0.)
+    train_acc, train_loss = get_accuracy(trainloader)
+    test_acc, test_loss = get_accuracy(testloader)
+    TRAIN_INFO['train_acc'].append(float("{:.4f}".format(train_acc)))
+    TRAIN_INFO['test_acc'].append(float("{:.4f}".format(test_acc)))
+    TRAIN_INFO['train_loss'].append(float("{:.4f}".format(train_loss)))
+    TRAIN_INFO['test_loss'].append(float("{:.4f}".format(test_loss)))
+    TRAIN_INFO['total_time'].append(0.)
 
     st_time = time.time()
     for epoch in range(start_epoch, args.epoch):
