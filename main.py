@@ -15,6 +15,7 @@ from torchsummary import summary
 
 from backpack import backpack, extend
 from backpack.extensions import FisherBlock, MNGD
+from backpack.utils.conv import unfold_func
 import math
 import time
 import copy
@@ -24,7 +25,7 @@ from torch import einsum, matmul, eye
 from torch.linalg import inv
 import numpy as np
 # for REPRODUCIBILITY
-torch.manual_seed(0)
+# torch.manual_seed(0)
 
 # fetch args
 parser = argparse.ArgumentParser()
@@ -69,6 +70,7 @@ parser.add_argument('--low_rank', default='false', type=str)
 parser.add_argument('--gamma', default=0.95, type=float)
 parser.add_argument('--batchnorm', default='false', type=str)
 parser.add_argument('--step_info', default='false', type=str)
+parser.add_argument('--memory_efficient', default='false', type=str)
 
 # for adam optimizer
 parser.add_argument('--epsilon', default=1e-8, type=float)
@@ -353,7 +355,7 @@ def train(epoch):
                 # gg = torch.nn.functional.softmax(outputs, dim=1)
                     sampled_y = torch.multinomial(torch.nn.functional.softmax(outputs, dim=1),1).squeeze().to(args.device)
                 
-                update_list, loss = optimal_JJT(outputs, sampled_y, args.batch_size, damping=damp, alpha=0.95, low_rank=args.low_rank, gamma=args.gamma)
+                update_list, loss = optimal_JJT(outputs, sampled_y, args.batch_size, damping=damp, alpha=0.95, low_rank=args.low_rank, gamma=args.gamma, memory_efficient=args.memory_efficient)
                 # optimizer.zero_grad()
                 # update_list, loss = optimal_JJT_fused(outputs, sampled_y, args.batch_size, damping=damp)
 
@@ -452,6 +454,8 @@ def train(epoch):
                                     m.weight.grad.copy_(update)
                             elif hasattr(m, "I"):
                                 I = m.I
+                                if args.memory_efficient == 'true':
+                                    I = unfold_func(m)(I)
                                 G = m.G
                                 n = I.shape[0]
                                 NGD_inv = m.NGD_inv
@@ -480,22 +484,13 @@ def train(epoch):
                                 m.weight.grad.copy_(update)
                         
                         
-                        
 
-
-                # update_list, loss = optimal_JJT(outputs, sampled_y, args.batch_size, damping=damp)
-                # optimizer.zero_grad()
-                # update_list, loss = optimal_JJT_fused(outputs, sampled_y, args.batch_size, damping=damp)
-
-   
                 # last part of SMW formula
                 grad_new = []
                 for name, param in net.named_parameters():
                     grad_new.append(param.grad.reshape(1, -1))
                 grad_new = torch.cat(grad_new, 1)   
                 # grad_new = grad_org
-
-                # print('freq')
 
 
             ##### do kl clip
@@ -605,11 +600,11 @@ def test(epoch):
     test_loss = test_loss/(batch_idx + 1)
     return acc, test_loss
 
-def optimal_JJT(outputs, targets, batch_size, damping=1.0, alpha=0.95, low_rank='false', gamma=0.95):
+def optimal_JJT(outputs, targets, batch_size, damping=1.0, alpha=0.95, low_rank='false', gamma=0.95, memory_efficient='false'):
     jac_list = 0
     vjp = 0
     update_list = {}
-    with backpack(FisherBlock(damping, alpha, low_rank, gamma)):
+    with backpack(FisherBlock(damping, alpha, low_rank, gamma, memory_efficient)):
         loss = criterion(outputs, targets)
         loss.backward(retain_graph=True)
     for name, param in net.named_parameters():
