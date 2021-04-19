@@ -2,6 +2,7 @@ from .kfac import KFACOptimizer
 from .ekfac import EKFACOptimizer
 from .kbfgs import KBFGSOptimizer
 from .kbfgsl import KBFGSLOptimizer
+from .ngd import NGDOptimizer
 
 
 def get_optimizer(name):
@@ -13,5 +14,7 @@ def get_optimizer(name):
     	return KBFGSOptimizer
     elif name == 'kbfgsl':
     	return KBFGSLOptimizer
+    elif name == 'ngd':
+        return NGDOptimizer
     else:
         raise NotImplementedError
