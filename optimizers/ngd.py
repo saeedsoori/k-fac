@@ -165,6 +165,7 @@ class NGDOptimizer(optim.Optimizer):
                 grad_prod = einsum("nml,nml->n", (x1, G)) 
 
                 bias_update = None
+                grad_prod_bias = 0
                 if m.bias is not None:
                     grad_bias = m.bias.grad.data
                     grad_prod_bias = einsum("nml,m->n", (G, grad_bias))
@@ -196,6 +197,7 @@ class NGDOptimizer(optim.Optimizer):
                 grad_prod = grad_prod.squeeze()
 
                 bias_update = None
+                grad_prod_bias = 0
                 if m.bias is not None:
                     grad_bias = m.bias.grad.data
                     grad_prod_bias = einsum("nml,m->n", (G, grad_bias))
