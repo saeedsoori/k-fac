@@ -1,6 +1,6 @@
 from models.cifar import (alexnet, densenet, resnet,
                           vgg16_bn, vgg19_bn, vgg16, vgg13,
-                          wrn, inception, googlenet, xception)
+                          wrn, inception, googlenet, xception, nasnet)
 from models.mnist import (fc, convnet, bn)
 
 
@@ -19,7 +19,8 @@ def get_network(network, **kwargs):
         'wrn': wrn,
         'inception': inception,
         "googlenet": googlenet,
-        "xception": xception
+        "xception": xception,
+        "nasnet": nasnet
 
     }
 

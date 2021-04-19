@@ -71,3 +71,4 @@ from .densenet import *
 from .inception import *
 from .googlenet import *
 from .xception import *
+from .nasnet import *
