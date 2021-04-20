@@ -73,3 +73,4 @@ from .googlenet import *
 from .xception import *
 from .nasnet import *
 from .resnext import *
+from .mobilenetv2 import *
