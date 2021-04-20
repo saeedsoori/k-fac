@@ -18,7 +18,7 @@ class Block(nn.Module):
         planes = expansion * in_planes
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes//2, planes//2, kernel_size=3, stride=stride, padding=1, groups=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes//2, kernel_size=3, stride=stride, padding=1, groups=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes//2)
         self.conv3 = nn.Conv2d(planes//2, out_planes, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn3 = nn.BatchNorm2d(out_planes)
