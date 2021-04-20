@@ -14,7 +14,7 @@ from utils.data_utils import get_dataloader
 from torchsummary import summary
 
 from backpack import backpack, extend
-from backpack.extensions import FisherBlock, MNGD
+from backpack.extensions import FisherBlock, FisherBlockEff
 from backpack.utils.conv import unfold_func
 import math
 import time
@@ -73,6 +73,7 @@ parser.add_argument('--gamma', default=0.95, type=float)
 parser.add_argument('--batchnorm', default='false', type=str)
 parser.add_argument('--step_info', default='false', type=str)
 parser.add_argument('--memory_efficient', default='false', type=str)
+parser.add_argument('--trial', default='false', type=str)
 
 # for adam optimizer
 parser.add_argument('--epsilon', default=1e-8, type=float)
@@ -359,7 +360,11 @@ def train(epoch):
                 # gg = torch.nn.functional.softmax(outputs, dim=1)
                     sampled_y = torch.multinomial(torch.nn.functional.softmax(outputs, dim=1),1).squeeze().to(args.device)
                 
-                update_list, loss = optimal_JJT(outputs, sampled_y, args.batch_size, damping=damp, alpha=0.95, low_rank=args.low_rank, gamma=args.gamma, memory_efficient=args.memory_efficient)
+                if args.trial == 'true':
+                    update_list, loss = optimal_JJT_v2(outputs, sampled_y, args.batch_size, damping=damp, alpha=0.95, low_rank=args.low_rank, gamma=args.gamma, memory_efficient=args.memory_efficient)
+                else:
+                    update_list, loss = optimal_JJT(outputs, sampled_y, args.batch_size, damping=damp, alpha=0.95, low_rank=args.low_rank, gamma=args.gamma, memory_efficient=args.memory_efficient)
+
                 # optimizer.zero_grad()
                 # update_list, loss = optimal_JJT_fused(outputs, sampled_y, args.batch_size, damping=damp)
 
@@ -615,21 +620,18 @@ def optimal_JJT(outputs, targets, batch_size, damping=1.0, alpha=0.95, low_rank=
         fisher_vals = param.fisher_block
         update_list[name] = fisher_vals[2]
     return update_list, loss
-
-def optimal_JJT_fused(outputs, targets, batch_size, damping=1.0):
+    
+def optimal_JJT_v2(outputs, targets, batch_size, damping=1.0, alpha=0.95, low_rank='false', gamma=0.95, memory_efficient='false'):
     jac_list = 0
     vjp = 0
     update_list = {}
-    loss = 0
-    with backpack(MNGD()):
+    with backpack(FisherBlockEff(damping, alpha, low_rank, gamma, memory_efficient)):
         loss = criterion(outputs, targets)
         loss.backward(retain_graph=True)
-    # for name, param in net.named_parameters():
-        # fisher_vals = param.fisher_block
-        # update_list[name] = fisher_vals[2]
+    for name, param in net.named_parameters():
+        update_list[name] = param.fisher_block
+        
     return update_list, loss
-    
-
 
 def main():
     train_acc, train_loss = get_accuracy(trainloader)
