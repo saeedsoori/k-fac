@@ -269,6 +269,14 @@ TRAIN_INFO['test_acc'] = []
 TRAIN_INFO['total_time'] = []
 TRAIN_INFO['epoch_time'] = []
 
+def store_io_(Flag=True):
+    if module_names == 'children':
+        all_modules = net.children()
+    elif module_names == 'features':
+        all_modules = net.features.children()
+    for m in all_modules:
+        if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
+            m.training = Flag
 
 
 def train(epoch):
@@ -338,6 +346,7 @@ def train(epoch):
 
         elif optim_name == 'ngd':
             if batch_idx % args.freq == 0:
+                store_io_(True)
                 inputs, targets = inputs.to(args.device), targets.to(args.device)
                 optimizer.zero_grad()
                 # net.set_require_grad(True)
@@ -377,7 +386,7 @@ def train(epoch):
                     grad_new.append(param.grad.reshape(1, -1))
                 grad_new = torch.cat(grad_new, 1)   
                 # grad_new = grad_org
-
+                store_io_(False)
             else:
                 inputs, targets = inputs.to(args.device), targets.to(args.device)
                 optimizer.zero_grad()
