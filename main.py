@@ -629,7 +629,7 @@ def optimal_JJT_v2(outputs, targets, batch_size, damping=1.0, alpha=0.95, low_ra
         loss = criterion(outputs, targets)
         loss.backward(retain_graph=True)
     for name, param in net.named_parameters():
-        if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
+        if hasattr(param, "fisher_block"):
             update_list[name] = param.fisher_block
         else:
             update_list[name] = param.grad.data
