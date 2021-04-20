@@ -395,7 +395,7 @@ def train(epoch):
                 outputs = net(inputs)
                 damp = damping
                 loss = criterion(outputs, targets)
-                loss.backward(retain_graph=True)
+                loss.backward()
 
                 # storing original gradient for later use
                 grad_org = []
@@ -636,7 +636,7 @@ def optimal_JJT_v2(outputs, targets, batch_size, damping=1.0, alpha=0.95, low_ra
     update_list = {}
     with backpack(FisherBlockEff(damping, alpha, low_rank, gamma, memory_efficient)):
         loss = criterion(outputs, targets)
-        loss.backward(retain_graph=True)
+        loss.backward()
     for name, param in net.named_parameters():
         if hasattr(param, "fisher_block"):
             update_list[name] = param.fisher_block
