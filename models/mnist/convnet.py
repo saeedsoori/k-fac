@@ -8,32 +8,20 @@ __all__ = ['convnet']
 class ConvNet(nn.Module):
 
     def __init__(self, num_classes=10, **kwargs):
-        # super(ConvNet, self).__init__()
-        # self.features = nn.Sequential(
-        #     nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1),
-        #     nn.ReLU(),
-        #     nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1),
-        #     nn.ReLU(),
-        #     nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1),
-        #     nn.ReLU(),
-        #     nn.Flatten(), 
-        #     nn.Linear(28*28*32, 100),
-        #     nn.ReLU(),
-        #     nn.Linear(100, 100),
-        #     nn.ReLU(),
-        #     nn.Linear(100, 10)         
-        # )
+        
         super(ConvNet, self).__init__()
         self.features = nn.Sequential(
-            nn.Conv2d(1, 13, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(1, 256, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Conv2d(13, 17, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Conv2d(17, 1, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
+            nn.MaxPool2d(kernel_size=3),
             nn.Flatten(), 
-            nn.Linear(28*28*1, 10),
-        
+            nn.Linear(9*9*256, 100),
+            nn.ReLU(),
+            nn.Linear(100, 10),
         )
 
     def forward(self, x, bfgs=False):
@@ -42,8 +30,5 @@ class ConvNet(nn.Module):
 
 
 def convnet(**kwargs):
-    """AlexNet model architecture from the
-    `"One weird trick..." <https://arxiv.org/abs/1404.5997>`_ paper.
-    """
     model = ConvNet(**kwargs)
     return model

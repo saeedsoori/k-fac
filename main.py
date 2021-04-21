@@ -74,6 +74,7 @@ parser.add_argument('--batchnorm', default='false', type=str)
 parser.add_argument('--step_info', default='false', type=str)
 parser.add_argument('--memory_efficient', default='false', type=str)
 parser.add_argument('--trial', default='false', type=str)
+parser.add_argument('--super_opt', default='false', type=str)
 
 # for adam optimizer
 parser.add_argument('--epsilon', default=1e-8, type=float)
@@ -370,7 +371,7 @@ def train(epoch):
                     sampled_y = torch.multinomial(torch.nn.functional.softmax(outputs, dim=1),1).squeeze().to(args.device)
                 
                 if args.trial == 'true':
-                    update_list, loss = optimal_JJT_v2(outputs, sampled_y, args.batch_size, damping=damp, alpha=0.95, low_rank=args.low_rank, gamma=args.gamma, memory_efficient=args.memory_efficient)
+                    update_list, loss = optimal_JJT_v2(outputs, sampled_y, args.batch_size, damping=damp, alpha=0.95, low_rank=args.low_rank, gamma=args.gamma, memory_efficient=args.memory_efficient, super_opt=args.super_opt)
                 else:
                     update_list, loss = optimal_JJT(outputs, sampled_y, args.batch_size, damping=damp, alpha=0.95, low_rank=args.low_rank, gamma=args.gamma, memory_efficient=args.memory_efficient)
 
@@ -630,11 +631,11 @@ def optimal_JJT(outputs, targets, batch_size, damping=1.0, alpha=0.95, low_rank=
         update_list[name] = fisher_vals[2]
     return update_list, loss
     
-def optimal_JJT_v2(outputs, targets, batch_size, damping=1.0, alpha=0.95, low_rank='false', gamma=0.95, memory_efficient='false'):
+def optimal_JJT_v2(outputs, targets, batch_size, damping=1.0, alpha=0.95, low_rank='false', gamma=0.95, memory_efficient='false', super_opt='false'):
     jac_list = 0
     vjp = 0
     update_list = {}
-    with backpack(FisherBlockEff(damping, alpha, low_rank, gamma, memory_efficient)):
+    with backpack(FisherBlockEff(damping, alpha, low_rank, gamma, memory_efficient, super_opt)):
         loss = criterion(outputs, targets)
         loss.backward()
     for name, param in net.named_parameters():
