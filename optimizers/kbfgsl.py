@@ -59,7 +59,7 @@ class KBFGSLOptimizer(optim.Optimizer):
 
         # BFGS specific
         # TODO(bmu): may compute As_a without explicitly computing A
-        self.m_aa = {}
+        self.m_aa, self.As = {}, {}
 
         # a, g averaged over batch + spatial dimension for conv; over batch for fc
         self.a_avg, self.g_avg, self.next_g_avg = {}, {}, {}
@@ -77,7 +77,19 @@ class KBFGSLOptimizer(optim.Optimizer):
         if torch.is_grad_enabled() and self.steps % self.TCov == 0:
             if m.__class__.__name__ == "Conv2d":
                 # KF-QN-CNN use an estimate over a batch instead of running estimate
-                self.m_aa[m], self.a_avg[m] = self.CovAHandler(input[0].data, m, bfgs=True)
+                a, self.a_avg[m] = self.CovAHandler(input[0].data, m, bfgs=True)
+                if not m in self.H_a:
+                    batch_size, spatial_size = a.size(0), a.size(1)
+                    a_ = a.view(-1, a.size(-1)) / spatial_size
+                    cov_a = a_.t() @ (a_ / batch_size)
+                    self.H_a[m] = torch.linalg.inv(cov_a + math.sqrt(self.damping) * torch.eye(cov_a.size(0)))
+                self.s_a[m] = self.H_a[m] @ self.a_avg[m].transpose(0, 1)
+                s_a = self.s_a[m].view(self.s_a[m].size(0))
+                batch_size, spatial_size = a.size(0), a.size(1)
+                self.As[m] = torch.einsum('ntd,d->nt', (a, s_a)) # broadcasted dot product
+                self.As[m] = torch.einsum('nt,ntd->ntd', (self.As[m], a)) # vector scaling
+                self.As[m] = torch.einsum('ntd->d', self.As[m]) # sum over batch and spatial dim
+                self.As[m] = self.As[m].unsqueeze(1) / batch_size
             elif m.__class__.__name__ == "Linear":
                 aa, self.a_avg[m] = self.CovAHandler(input[0].data, m, bfgs=True)
                 # initialize buffer
@@ -85,9 +97,9 @@ class KBFGSLOptimizer(optim.Optimizer):
                     self.m_aa[m] = torch.diag(aa.new(aa.size(0)).fill_(1))
                 # KF-QN-FC use a running estimate
                 update_running_stat(aa, self.m_aa[m], self.stat_decay)
-            # initialize buffer
-            if not m in self.H_a:
-                self.H_a[m] = torch.linalg.inv(self.m_aa[m] + math.sqrt(self.damping) * torch.eye(self.m_aa[m].size(0)))
+                # initialize buffer
+                if not m in self.H_a:
+                    self.H_a[m] = torch.linalg.inv(self.m_aa[m] + math.sqrt(self.damping) * torch.eye(self.m_aa[m].size(0)))
 
     def _save_pre_and_output(self, m, input, output):
         if self.steps % self.TCov == 0:
@@ -316,8 +328,14 @@ class KBFGSLOptimizer(optim.Optimizer):
 
         self._append_s_y(m, s_g_, y_g_)
 
-        self.s_a[m] = self.H_a[m] @ self.a_avg[m].transpose(0, 1)
-        self.y_a[m] = self.m_aa[m] @ self.s_a[m] + math.sqrt(damping) * self.s_a[m]
+        if m.__class__.__name__ == 'Conv2d':
+            self.y_a[m] = self.As[m] + math.sqrt(damping) * self.s_a[m]
+        elif m.__class__.__name__ == 'Linear':
+            self.s_a[m] = self.H_a[m] @ self.a_avg[m].transpose(0, 1)
+            self.y_a[m] = self.m_aa[m] @ self.s_a[m] + math.sqrt(damping) * self.s_a[m]
+        else:
+            raise NotImplementedError
+
         self.H_a[m], status = self._get_BFGS_update(self.H_a[m], self.s_a[m], self.y_a[m], self.a_avg[m].transpose(0, 1))
 
     @staticmethod

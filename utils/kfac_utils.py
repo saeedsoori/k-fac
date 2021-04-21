@@ -116,6 +116,7 @@ class ComputeCovA:
     def conv2d(a, layer, bfgs=False):
         batch_size = a.size(0)
         a = _extract_patches(a, layer.kernel_size, layer.stride, layer.padding)
+        a_patch = a.view(a.size(0), a.size(1) * a.size(2), -1)
         spatial_size = a.size(1) * a.size(2)
         a = a.view(-1, a.size(-1))
         if layer.bias is not None:
@@ -124,9 +125,9 @@ class ComputeCovA:
         # a averaged over batch + spatial dimension
         if bfgs:
             a_avg = torch.mean(a, dim=0, keepdim=True)
-            a = a / spatial_size
-            cov_a = a.t() @ (a / batch_size)
-            return cov_a, a_avg
+            if layer.bias is not None:
+                a_patch = torch.cat([a_patch, a_patch.new(a_patch.size(0), a_patch.size(1), 1).fill_(1)], 2)
+            return a_patch, a_avg
 
         # FIXME(CW): do we need to divide the output feature map's size?
         a = a / spatial_size
