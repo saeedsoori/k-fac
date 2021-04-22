@@ -107,8 +107,8 @@ class KBFGSLOptimizer(optim.Optimizer):
 
             # initialize buffer
             if not m in self.s_g:
-                self.s_g[m] = torch.zeros(self.pre_activations[m].size(-1), 1)
-                self.y_g[m] = torch.zeros(self.pre_activations[m].size(-1), 1)
+                self.s_g[m] = torch.zeros(self.pre_activations[m].size(-1), 1).to(self.pre_activations[m].device)
+                self.y_g[m] = torch.zeros(self.pre_activations[m].size(-1), 1).to(self.pre_activations[m].device)
 
     def _save_next_pre(self, m, input, output):
         if self.steps % self.TCov == 0:
@@ -292,7 +292,7 @@ class KBFGSLOptimizer(optim.Optimizer):
                 B = B.unsqueeze(0)
                 B = B.unsqueeze(1)
 
-                self.R_inv[m] = torch.cat([torch.cat([self.R_inv[m], torch.zeros(1, self.R_inv[m].size(1))], dim=0),
+                self.R_inv[m] = torch.cat([torch.cat([self.R_inv[m], torch.zeros(1, self.R_inv[m].size(1)).to(self.R_inv[m].device)], dim=0),
                                            torch.cat([-B * torch.mm(self.R_inv[m], sTy[:-1]), B], dim=0)],
                                            dim=1)
             gamma = self.gamma
