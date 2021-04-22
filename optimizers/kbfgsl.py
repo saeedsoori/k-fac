@@ -82,7 +82,7 @@ class KBFGSLOptimizer(optim.Optimizer):
                     batch_size, spatial_size = a.size(0), a.size(1)
                     a_ = a.view(-1, a.size(-1)) / spatial_size
                     cov_a = a_.t() @ (a_ / batch_size)
-                    self.H_a[m] = torch.linalg.inv(cov_a + math.sqrt(self.damping) * torch.eye(cov_a.size(0)))
+                    self.H_a[m] = torch.linalg.inv(cov_a + math.sqrt(self.damping) * torch.eye(cov_a.size(0)).to(cov_a.device))
                 self.s_a[m] = self.H_a[m] @ self.a_avg[m].transpose(0, 1)
                 s_a = self.s_a[m].view(self.s_a[m].size(0))
                 batch_size, spatial_size = a.size(0), a.size(1)
@@ -99,7 +99,7 @@ class KBFGSLOptimizer(optim.Optimizer):
                 update_running_stat(aa, self.m_aa[m], self.stat_decay)
                 # initialize buffer
                 if not m in self.H_a:
-                    self.H_a[m] = torch.linalg.inv(self.m_aa[m] + math.sqrt(self.damping) * torch.eye(self.m_aa[m].size(0)))
+                    self.H_a[m] = torch.linalg.inv(self.m_aa[m] + math.sqrt(self.damping) * torch.eye(self.m_aa[m].size(0)).to(self.m_aa[m].device))
 
     def _save_pre_and_output(self, m, input, output):
         if self.steps % self.TCov == 0:

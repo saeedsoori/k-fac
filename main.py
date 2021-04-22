@@ -67,7 +67,7 @@ parser.add_argument('--TScal', default=10, type=int)
 parser.add_argument('--TInv', default=100, type=int)
 
 # for ngd optimizer
-parser.add_argument('--freq', default=10, type=int)
+parser.add_argument('--freq', default=100, type=int)
 parser.add_argument('--low_rank', default='false', type=str)
 parser.add_argument('--gamma', default=0.95, type=float)
 parser.add_argument('--batchnorm', default='false', type=str)
