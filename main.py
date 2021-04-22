@@ -63,24 +63,24 @@ parser.add_argument('--damping', default=1e-3, type=float)
 parser.add_argument('--kl_clip', default=1e-2, type=float)
 parser.add_argument('--weight_decay', default=3e-3, type=float)
 parser.add_argument('--TCov', default=20, type=int)
-parser.add_argument('--TScal', default=10, type=int)
+parser.add_argument('--TScal', default=20, type=int)
 parser.add_argument('--TInv', default=100, type=int)
 
 # for ngd optimizer
 parser.add_argument('--freq', default=100, type=int)
 parser.add_argument('--low_rank', default='false', type=str)
-parser.add_argument('--gamma', default=0.95, type=float)
+parser.add_argument('--gamma', default=0.9, type=float)
 parser.add_argument('--batchnorm', default='false', type=str)
 parser.add_argument('--step_info', default='false', type=str)
 parser.add_argument('--memory_efficient', default='false', type=str)
-parser.add_argument('--trial', default='false', type=str)
+parser.add_argument('--trial', default='true', type=str)
 parser.add_argument('--super_opt', default='false', type=str)
 
 # for adam optimizer
 parser.add_argument('--epsilon', default=1e-8, type=float)
 
 # for K-BFGS(L) optimizer
-parser.add_argument('--num_s_y_pairs', default=100, type=int)
+parser.add_argument('--num_s_y_pairs', default=1000, type=int)
 
 parser.add_argument('--prefix', default=None, type=str)
 args = parser.parse_args()
