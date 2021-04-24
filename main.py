@@ -564,6 +564,7 @@ def train(epoch):
             if args.debug_mem == 'true':
                 TRAIN_INFO['memory'].append(torch.cuda.memory_reserved())
             step_st_time = time.time()
+            net.train()
 
     writer.add_scalar('train/loss', train_loss/(batch_idx + 1), epoch)
     writer.add_scalar('train/acc', 100. * correct / total, epoch)
