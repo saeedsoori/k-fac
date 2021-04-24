@@ -83,6 +83,7 @@ parser.add_argument('--epsilon', default=1e-8, type=float)
 parser.add_argument('--num_s_y_pairs', default=1000, type=int)
 
 parser.add_argument('--prefix', default=None, type=str)
+parser.add_argument('--debug_mem', default='false', type=str)
 args = parser.parse_args()
 
 # init model
@@ -270,6 +271,9 @@ TRAIN_INFO['test_acc'] = []
 TRAIN_INFO['total_time'] = []
 TRAIN_INFO['epoch_time'] = []
 
+if args.debug_mem == 'true':
+  TRAIN_INFO['memory'] = []
+  
 def store_io_(Flag=True):
     if module_names == 'children':
         all_modules = net.children()
@@ -548,7 +552,7 @@ def train(epoch):
         desc = ('[%s][LR=%s] Loss: %.3f | Acc: %.3f%% (%d/%d)' %
                 (tag, lr_scheduler.get_last_lr()[0], train_loss / (batch_idx + 1), 100. * correct / total, correct, total))
         prog_bar.set_description(desc, refresh=True)
-        if args.step_info == 'true' and (batch_idx % 100 == 0 or batch_idx == len(prog_bar) - 1):
+        if args.step_info == 'true' and (batch_idx % 50 == 0 or batch_idx == len(prog_bar) - 1):
             step_saved_time = time.time() - step_st_time
             epoch_time += step_saved_time
             test_acc, test_loss = test(epoch)
@@ -557,6 +561,8 @@ def train(epoch):
             TRAIN_INFO['train_loss'].append(float("{:.4f}".format(train_loss/(batch_idx + 1))))
             TRAIN_INFO['test_loss'].append(float("{:.4f}".format(test_loss)))
             TRAIN_INFO['total_time'].append(float("{:.4f}".format(step_saved_time)))
+            if args.debug_mem == 'true':
+                TRAIN_INFO['memory'].append(torch.cuda.memory_reserved())
             step_st_time = time.time()
 
     writer.add_scalar('train/loss', train_loss/(batch_idx + 1), epoch)
@@ -654,7 +660,8 @@ def main():
     TRAIN_INFO['train_loss'].append(float("{:.4f}".format(train_loss)))
     TRAIN_INFO['test_loss'].append(float("{:.4f}".format(test_loss)))
     TRAIN_INFO['total_time'].append(0.)
-
+    if args.debug_mem == 'true':
+      TRAIN_INFO['memory'].append(torch.cuda.memory_reserved())
     st_time = time.time()
     for epoch in range(start_epoch, args.epoch):
         ep_st_time = time.time()
@@ -699,14 +706,20 @@ def main():
             print ("Successfully created the directory %s " % path)
     
     f = open( path + "/" + fname + ".csv", 'w')
-    f.write('time(s), train_loss, test_loss, train_acc, test_acc, epoch_time(s)\n')
+    if args.debug_mem == 'true':
+      f.write('time(s), train_loss, test_loss, train_acc, test_acc, mem(b), epoch_time(s)\n')     
+    else:
+      f.write('time(s), train_loss, test_loss, train_acc, test_acc, epoch_time(s)\n')
     for i in range(len(TRAIN_INFO['total_time'])):
         t1 = TRAIN_INFO['total_time'][i]
         t2 = TRAIN_INFO['train_loss'][i]
         t3 = TRAIN_INFO['test_loss'][i]
         t4 = TRAIN_INFO['train_acc'][i]
         t5 = TRAIN_INFO['test_acc'][i]
+
         line = str(t1) + ", " + str(t2) + ", " + str(t3) + ", " + str(t4) + ", " + str(t5) 
+        if args.debug_mem == 'true':
+            line = line + ", " + str(TRAIN_INFO['memory'][i])
         if i < len(TRAIN_INFO['epoch_time']):
             line = line + ", " + str(TRAIN_INFO['epoch_time'][i]) + "\n"
         else:
