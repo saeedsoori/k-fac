@@ -52,12 +52,12 @@ def get_transforms(dataset):
     if dataset == 'fashion-mnist':
         transform_train = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize((0.5,), (0.5,))
+            transforms.Normalize((0.2862,), (0.3529,))
         ])
 
         transform_test = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize((0.5,), (0.5,))
+            transforms.Normalize((0.2862,), (0.3529,))
         ])
 
     assert transform_test is not None and transform_train is not None, 'Error, no dataset %s' % dataset
