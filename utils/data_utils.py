@@ -49,6 +49,17 @@ def get_transforms(dataset):
             transforms.Normalize((0.1307,), (0.3081,))
         ])
 
+    if dataset == 'fashion-mnist':
+        transform_train = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,))
+        ])
+
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,))
+        ])
+
     assert transform_test is not None and transform_train is not None, 'Error, no dataset %s' % dataset
     return transform_train, transform_test
 
@@ -67,6 +78,10 @@ def get_dataloader(dataset, train_batch_size, test_batch_size, num_workers=2, ro
     if dataset == 'mnist':
         trainset = torchvision.datasets.MNIST(root=root, train=True, download=True, transform=transform_train)
         testset = torchvision.datasets.MNIST(root=root, train=False, download=True, transform=transform_test)
+
+    if dataset == 'fashion-mnist':
+        trainset = torchvision.datasets.FashionMNIST(root=root, train=True, download=True, transform=transform_train)
+        testset = torchvision.datasets.FashionMNIST(root=root, train=False, download=True, transform=transform_test)
 
     assert trainset is not None and testset is not None, 'Error, no dataset %s' % dataset
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=train_batch_size, shuffle=True,

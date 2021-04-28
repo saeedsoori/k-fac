@@ -90,7 +90,8 @@ args = parser.parse_args()
 nc = {
     'cifar10': 10,
     'cifar100': 100,
-    'mnist':10
+    'mnist':10,
+    'fashion-mnist': 10
 }
 num_classes = nc[args.dataset]
 net = get_network(args.network,
@@ -125,6 +126,8 @@ elif args.dataset == 'cifar10':
     summary(net, ( 3, 32, 32))
 elif args.dataset == 'cifar100':
     summary(net, ( 3, 32, 32))
+elif args.dataset == 'fashion-mnist':
+    summary(net, ( 1, 28, 28))
 
 # init dataloader
 trainloader, testloader = get_dataloader(dataset=args.dataset,
