@@ -9,7 +9,7 @@ echo 'SGD finished'
 
 # NGD
 echo 'NGD Started'
-python main.py --step_info true --debug_mem true --freq 20 --trial true --super_opt true --batchnorm false --dataset cifar10  --batch_size 128  --device $device --optimizer ngd --network vgg16_bn  --epoch $epochs --milestone 10,20,30,40,50 --learning_rate  3e-2 --learning_rate_decay 0.5  --damping 0.2  --weight_decay 0.003 --momentum 0.9
+python main.py --step_info true --debug_mem true --freq 20 --trial true --low_rank true --gamma 0.9 --batchnorm false --dataset cifar10  --batch_size 128  --device $device --optimizer ngd --network vgg16_bn  --epoch $epochs --milestone 10,20,30,40,50 --learning_rate  3e-2 --learning_rate_decay 0.5  --damping 0.2  --weight_decay 0.003 --momentum 0.9
 echo 'NGD Finished'
 
 # KFAC
