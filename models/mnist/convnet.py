@@ -11,17 +11,17 @@ class ConvNet(nn.Module):
         
         super(ConvNet, self).__init__()
         self.features = nn.Sequential(
-            nn.Conv2d(1, 256, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(1, 128, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=3),
             nn.Flatten(), 
-            nn.Linear(9*9*256, 100),
+            nn.Linear(9*9*128, 500),
             nn.ReLU(),
-            nn.Linear(100, 10),
+            nn.Linear(500, 10),
         )
 
     def forward(self, x, bfgs=False):
