@@ -697,6 +697,7 @@ def main():
         fname = fname + "_" + str(args.epsilon) 
     elif optim_name == 'sgd':
         fname = fname + "_m_" + str(args.momentum) 
+    fname = fname + "_wd_" + str(args.weight_decay)
 
 
     fname = fname + str(np.random.rand()) 
