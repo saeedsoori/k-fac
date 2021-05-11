@@ -40,7 +40,7 @@ class KBFGSOptimizer(optim.Optimizer):
         self.pre_activations, self.next_pre_activations = {}, {}
 
         self.model = model
-        self._prepare_model(self.model, init_module=True)
+        self._prepare_model(self.model, cloned=False, init_module=True)
 
         self.steps = 0
 
@@ -94,7 +94,7 @@ class KBFGSOptimizer(optim.Optimizer):
 
     def _save_pre_and_output(self, m, input, output):
         if self.steps % self.TCov == 0:
-            self.pre_activations[m] = self.CovGHandler(output, m, batch_averaged=False, bfgs=False, pre=True)
+            self.pre_activations[m] = self.CovGHandler(output.data, m, batch_averaged=False, bfgs=False, pre=True)
 
             # initialize buffer
             if not m in self.H_g:
@@ -104,7 +104,7 @@ class KBFGSOptimizer(optim.Optimizer):
 
     def _save_next_pre(self, m, input, output):
         if self.steps % self.TCov == 0:
-            self.next_pre_activations[m] = self.CovGHandler(output, m, batch_averaged=False, bfgs=False, pre=True)
+            self.next_pre_activations[m] = self.CovGHandler(output.data, m, batch_averaged=False, bfgs=False, pre=True)
 
     def _save_grad_output(self, m, grad_input, grad_output):
         if self.steps % self.TCov == 0:
@@ -116,15 +116,15 @@ class KBFGSOptimizer(optim.Optimizer):
 
     def _prepare_model(self, model, cloned=False, init_module=False):
         if not cloned:
-            print(model)
+            if init_module:
+                print("=> We keep following layers in KBFGS. ")
 
             count = 0
-            print("=> We keep following layers in KBFGS. ")
             for module in model.modules():
                 if module.__class__.__name__ in self.known_modules:
                     if init_module:
                         self.modules.append(module)
-                    print('(%s): %s' % (count, module))
+                        print('(%s): %s' % (count, module))
                     self.handles.append(module.register_forward_pre_hook(self._save_input))
                     self.handles.append(module.register_forward_hook(self._save_pre_and_output))
                     self.handles.append(module.register_backward_hook(self._save_grad_output))
@@ -325,6 +325,7 @@ class KBFGSOptimizer(optim.Optimizer):
 
             for handle in self.handles:
                 handle.remove()
+            self.handles.clear()
 
             model_new = copy.deepcopy(self.model)
 
@@ -351,5 +352,15 @@ class KBFGSOptimizer(optim.Optimizer):
                 n = new_modules[l]
                 self._update_inv(m, damping, n)
                 l += 1
+
+            # clean up memory of intermediate values (not required any more) to update the inverse
+            self.pre_activations.clear()
+            self.next_pre_activations.clear()
+            self.next_g_avg.clear()
+            new_modules.clear()
+            del model_new
+            torch.cuda.empty_cache()
+
+            self._prepare_model(self.model, cloned=False, init_module=False)
 
         self.steps += 1
