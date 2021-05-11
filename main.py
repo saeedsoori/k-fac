@@ -194,7 +194,6 @@ elif optim_name == 'kbfgs':
     print('K-BFGS optimizer selected.')
     optimizer = KBFGSOptimizer(net,
                                lr=args.learning_rate,
-                               momentum=args.momentum,
                                weight_decay=args.weight_decay,
                                stat_decay=args.stat_decay,
                                damping=args.damping,
@@ -204,7 +203,6 @@ elif optim_name == 'kbfgsl':
     print('K-BFGS(L) optimizer selected.')
     optimizer = KBFGSLOptimizer(net,
                                 lr=args.learning_rate,
-                                momentum=args.momentum,
                                 weight_decay=args.weight_decay,
                                 stat_decay=args.stat_decay,
                                 damping=args.damping,

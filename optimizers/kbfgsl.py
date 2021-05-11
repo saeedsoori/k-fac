@@ -12,7 +12,6 @@ class KBFGSLOptimizer(optim.Optimizer):
     def __init__(self,
                  model,
                  lr=0.001,
-                 momentum=0.9,
                  weight_decay=0,
                  stat_decay=0.9,
                  damping=0.3,
@@ -22,12 +21,9 @@ class KBFGSLOptimizer(optim.Optimizer):
                  num_s_y_pairs=100):
         if lr < 0.0:
             raise ValueError("Invalid learning rate: {}".format(lr))
-        if momentum < 0.0:
-            raise ValueError("Invalid momentum value: {}".format(momentum))
         if weight_decay < 0.0:
             raise ValueError("Invalid weight_decay value: {}".format(weight_decay))
-        defaults = dict(lr=lr, momentum=momentum, damping=damping,
-                        weight_decay=weight_decay)
+        defaults = dict(lr=lr, damping=damping, weight_decay=weight_decay)
         # TODO (CW): optimizer now only support model as input
         super(KBFGSLOptimizer, self).__init__(model.parameters(), defaults)
         self.handles = []
@@ -47,7 +43,6 @@ class KBFGSLOptimizer(optim.Optimizer):
 
         self.stat_decay = stat_decay
         self.weight_decay = weight_decay
-        self.momentum = momentum
         self.damping = damping
         self.lr = lr
 
@@ -58,7 +53,8 @@ class KBFGSLOptimizer(optim.Optimizer):
         print('num_s_y_pairs:', self.num_s_y_pairs)
 
         # BFGS specific
-        # TODO(bmu): may compute As_a without explicitly computing A
+        self.grad_momentum = {}
+
         self.m_aa, self.As = {}, {}
 
         # a, g averaged over batch + spatial dimension for conv; over batch for fc
@@ -337,8 +333,7 @@ class KBFGSLOptimizer(optim.Optimizer):
 
         self.H_a[m], status = self._get_BFGS_update(self.H_a[m], self.s_a[m], self.y_a[m], self.a_avg[m].transpose(0, 1))
 
-    @staticmethod
-    def _get_matrix_form_grad(m, classname):
+    def _get_matrix_form_grad(self, m, classname):
         """
         :param m: the layer
         :param classname: the class name of the layer
@@ -350,7 +345,13 @@ class KBFGSLOptimizer(optim.Optimizer):
             p_grad_mat = m.weight.grad.data
         if m.bias is not None:
             p_grad_mat = torch.cat([p_grad_mat, m.bias.grad.data.view(-1, 1)], 1)
-        return p_grad_mat
+
+        if m not in self.grad_momentum:
+            self.grad_momentum[m] = torch.zeros(p_grad_mat.shape).to(p_grad_mat.device)
+
+        self.grad_momentum[m] = self.stat_decay * self.grad_momentum[m] + (1 - self.stat_decay) * p_grad_mat
+
+        return self.grad_momentum[m]
 
     def _get_layer_update_direction(self, m, p_grad_mat, damping):
         """
@@ -386,22 +387,12 @@ class KBFGSLOptimizer(optim.Optimizer):
         # FIXME (CW): 1. no nesterov, 2. buf.mul_(momentum).add_(1 <del> - dampening </del>, d_p)
         for group in self.param_groups:
             weight_decay = group['weight_decay']
-            momentum = group['momentum']
             for p in group['params']:
                 if p.grad is None:
                     continue
                 d_p = p.grad.data
                 if weight_decay != 0 and self.steps >= 20 * self.TCov:
                     d_p.add_(weight_decay, p.data)
-                if momentum != 0:
-                    param_state = self.state[p]
-                    if 'momentum_buffer' not in param_state:
-                        buf = param_state['momentum_buffer'] = torch.zeros_like(p.data)
-                        buf.mul_(momentum).add_(1, d_p)
-                    else:
-                        buf = param_state['momentum_buffer']
-                        buf.mul_(momentum).add_(1, d_p)
-                    d_p = buf
 
                 p.data.add_(-group['lr'], d_p)
 
