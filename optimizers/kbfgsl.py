@@ -445,11 +445,6 @@ class KBFGSLOptimizer(optim.Optimizer):
             model_new.zero_grad()
             next_loss.backward()
 
-            inputs.detach()
-            targets.detach()
-            next_outputs.detach()
-            next_loss.detach()
-
             new_modules = []
 
             for module in model_new.modules():
