@@ -58,7 +58,8 @@ class KBFGSLOptimizer(optim.Optimizer):
         print('num_s_y_pairs:', self.num_s_y_pairs)
 
         # BFGS specific
-        # TODO(bmu): may compute As_a without explicitly computing A
+        self.grad_momentum = {}
+
         self.m_aa, self.As = {}, {}
 
         # a, g averaged over batch + spatial dimension for conv; over batch for fc
@@ -337,8 +338,7 @@ class KBFGSLOptimizer(optim.Optimizer):
 
         self.H_a[m], status = self._get_BFGS_update(self.H_a[m], self.s_a[m], self.y_a[m], self.a_avg[m].transpose(0, 1))
 
-    @staticmethod
-    def _get_matrix_form_grad(m, classname):
+    def _get_matrix_form_grad(self, m, classname):
         """
         :param m: the layer
         :param classname: the class name of the layer
@@ -350,7 +350,13 @@ class KBFGSLOptimizer(optim.Optimizer):
             p_grad_mat = m.weight.grad.data
         if m.bias is not None:
             p_grad_mat = torch.cat([p_grad_mat, m.bias.grad.data.view(-1, 1)], 1)
-        return p_grad_mat
+
+        if m not in self.grad_momentum:
+            self.grad_momentum[m] = torch.zeros(p_grad_mat.shape).to(p_grad_mat.device)
+
+        self.grad_momentum[m] = self.stat_decay * self.grad_momentum[m] + (1 - self.stat_decay) * p_grad_mat
+
+        return self.grad_momentum[m]
 
     def _get_layer_update_direction(self, m, p_grad_mat, damping):
         """
