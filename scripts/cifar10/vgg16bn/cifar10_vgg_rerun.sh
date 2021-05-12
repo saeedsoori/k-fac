@@ -15,6 +15,6 @@ echo 'NGD Finished'
 echo 'KBFGS-L Started'
 for i in 1 2 3 4 5
 do
-	python main.py --dataset cifar10  --batch_size 128 --device $device --optimizer kbfgsl  --network vgg16_bn  --epoch $epochs --milestone 10,20,30,40,50 --learning_rate  0.01 --learning_rate_decay 0.5  --damping 0.03  --weight_decay 0.003 --momentum 0.9
+	python main.py --dataset cifar10  --batch_size 128 --device $device --optimizer kbfgsl  --network vgg16_bn  --epoch $epochs --milestone 10,20,30,40,50 --learning_rate  0.01 --learning_rate_decay 0.5  --damping 0.03  --weight_decay 0.1 --momentum 0.9
 done
 echo 'KBFGS-L Finsihed'
