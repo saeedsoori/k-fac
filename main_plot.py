@@ -435,6 +435,7 @@ def train(epoch):
                             n = I.shape[0]
 
                             if batch_idx % 500 == 0:
+                              print('plotting')
                               II = einsum("ni,mi->nm", (I, I))
                               GG = einsum("no,mo->nm", (I, I))
                               heatmap2d(II.cpu().detach().numpy())
