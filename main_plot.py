@@ -434,11 +434,11 @@ def train(epoch):
                             G = m.G
                             n = I.shape[0]
 
-                            if batch_idx % 1 == 0:
+                            if batch_idx % 500 == 0:
                               II = einsum("ni,mi->nm", (I, I))
                               GG = einsum("no,mo->nm", (I, I))
-                              heatmap2d(II)
-                              heatmap2d(GG)
+                              heatmap2d(II.cpu().detach().numpy())
+                              heatmap2d(GG.cpu().detach().numpy())
                             NGD_inv = m.NGD_inv
                             grad_prod = einsum("ni,oi->no", (I, grad))
                             grad_prod = einsum("no,no->n", (grad_prod, G))
