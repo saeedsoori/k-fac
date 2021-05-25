@@ -276,10 +276,10 @@ TRAIN_INFO['epoch_time'] = []
 if args.debug_mem == 'true':
   TRAIN_INFO['memory'] = []
 
-def heatmap2d(arr: np.ndarray):
+def heatmap2d(arr: np.ndarray, name: 'default'):
     plt.imshow(arr, cmap='viridis')
     plt.colorbar()
-    plt.show()
+    plt.savefig(name, bbox_inches='tight')
   
 def store_io_(Flag=True):
     if module_names == 'children':
@@ -434,11 +434,11 @@ def train(epoch):
                             G = m.G
                             n = I.shape[0]
 
-                            
-                            II = einsum("ni,mi->nm", (I, I))
-                            GG = einsum("no,mo->nm", (G, G))
-                            heatmap2d(II.cpu().detach().numpy())
-                            heatmap2d(GG.cpu().detach().numpy())
+                            if batch_idx ==0 || batch_idx == 200:
+                              II = einsum("ni,mi->nm", (I, I))
+                              GG = einsum("no,mo->nm", (G, G))
+                              heatmap2d(II.cpu().detach().numpy(), 'I.png')
+                              heatmap2d(GG.cpu().detach().numpy(), 'G.png')
 
                             NGD_inv = m.NGD_inv
                             grad_prod = einsum("ni,oi->no", (I, grad))
