@@ -1,11 +1,12 @@
 from models.cifar import (alexnet, densenet, resnet,
                           vgg16_bn, vgg19_bn, vgg16, vgg13,
                           wrn, inception, googlenet, xception, nasnet, resnext, mobilenetv2)
-from models.mnist import (fc, convnet, bn)
+from models.mnist import (fc, convnet, bn, toy)
 
 
 def get_network(network, **kwargs):
     networks = {
+        'toy': toy,
         'bn': bn,
         'fc': fc,
         'convnet': convnet,

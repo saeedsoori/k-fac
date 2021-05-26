@@ -6,8 +6,10 @@ architectures:
 -  `convnet:3C3D`_
 - 'fc: 6D'
 - 'bn'
+- 'toy':3C1D, to plot Fisher inverse
 """
 
 from .convnet import *
 from .fc import *
 from .bn import *
+from .toy import *
