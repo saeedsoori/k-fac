@@ -14,7 +14,7 @@ from utils.data_utils import get_dataloader
 from torchsummary import summary
 
 from backpack import backpack, extend
-from backpack.extensions import FisherBlock, FisherBlockEff
+from backpack.extensions import FisherBlock, FisherBlockEff, BatchGrad
 from backpack.utils.conv import unfold_func
 import math
 import time
@@ -49,6 +49,7 @@ parser.add_argument('--device', default='cuda', type=str)
 parser.add_argument('--resume', '-r', action='store_true')
 parser.add_argument('--load_path', default='', type=str)
 parser.add_argument('--log_dir', default='runs/pretrain', type=str)
+parser.add_argument('--save_inv', default='false', type=str)
 
 
 parser.add_argument('--optimizer', default='kfac', type=str)
@@ -152,6 +153,9 @@ elif optim_name == 'kfac':
                               weight_decay=args.weight_decay,
                               TCov=args.TCov,
                               TInv=args.TInv)
+    if args.save_inv == 'true':
+      os.mkdir('kfac')
+
 elif optim_name == 'ekfac':
     optimizer = EKFACOptimizer(net,
                                lr=args.learning_rate,
@@ -176,6 +180,15 @@ elif optim_name == 'ngd':
         for name, param in net.named_parameters():
                 # print('initializing momentum buffer')
                 buf[name] = torch.zeros_like(param.data).to(args.device) 
+    if args.save_inv == 'true':
+      os.mkdir('ngd')
+
+elif optim_name == 'exact_ngd':
+    print('Exact NGD optimizer selected.')
+    optimizer = optim.SGD(net.parameters(),
+                          lr=args.learning_rate)
+    if args.save_inv == 'true':
+      os.mkdir('exact')
 
 elif optim_name == 'kngd':
     # SAEED: TODO fix batchnorm or remove it totally
@@ -234,6 +247,9 @@ if optim_name == 'ngd':
     extend(criterion)
     extend(criterion_none)
     # print(net.state_dict())
+elif optim_name == 'exact_ngd':
+    extend(net)
+    extend(criterion)
 
 
 # parameters for damping update
@@ -331,6 +347,49 @@ def train(epoch):
             def closure():
                 return inputs, targets, criterion
             optimizer.step(closure)
+        elif optim_name == 'exact_ngd':
+            inputs, targets = inputs.to(args.device), targets.to(args.device)
+            optimizer.zero_grad()
+            outputs = net(inputs)
+            loss = criterion(outputs, targets)
+            # update Fisher inverse
+            if batch_idx % args.freq == 0:
+              # compute true fisher
+              with torch.no_grad():
+                sampled_y = torch.multinomial(torch.nn.functional.softmax(outputs.cpu().data, dim=1),1).squeeze().to(args.device)
+              # use backpack extension to compute individual gradient in a batch
+              batch_grad = []
+              with backpack(BatchGrad()):
+                loss_sample = criterion(outputs, sampled_y)
+                loss_sample.backward(retain_graph=True)
+
+              for name, param in net.named_parameters():
+                if hasattr(param, "grad_batch"):
+                  batch_grad.append(args.batch_size * param.grad_batch.reshape(args.batch_size, -1))
+                else:
+                  raise NotImplementedError
+
+              J = torch.cat(batch_grad, 1)
+              fisher = torch.matmul(J.t(), J) / args.batch_size
+              inv = torch.linalg.inv(fisher + damping * torch.eye(fisher.size(0)).to(fisher.device))
+              # clean the gradient to compute the true fisher
+              optimizer.zero_grad()
+
+            loss.backward()
+            # compute the step direction p = F^-1 @ g
+            grad_list = []
+            for name, param in net.named_parameters():
+              grad_list.append(param.grad.data.reshape(-1, 1))
+            g = torch.cat(grad_list, 0)
+            p = torch.matmul(inv, g)
+
+            start = 0
+            for name, param in net.named_parameters():
+              end = start + param.data.reshape(-1, 1).size(0)
+              param.grad.copy_(p[start:end].reshape(param.grad.data.shape))
+              start = end
+
+            optimizer.step()
 
         ### new optimizer test
         elif optim_name in ['kngd'] :
@@ -544,8 +603,8 @@ def train(epoch):
                     lr = lr_scheduler.get_last_lr()[0]
                     param.data.add_(-lr, d_p)
 
-            
-        
+
+
         train_loss += loss.item()
         _, predicted = outputs.max(1)
         total += targets.size(0)
@@ -573,6 +632,61 @@ def train(epoch):
     train_loss = train_loss/(batch_idx + 1)
     if args.step_info == 'true':
         TRAIN_INFO['epoch_time'].append(float("{:.4f}".format(epoch_time)))
+    # save diagonal blocks of exact Fisher inverse or its approximations
+    if args.save_inv == 'true':
+      if module_names == 'children':
+          all_modules = net.children()
+      elif module_names == 'features':
+          all_modules = net.features.children()
+
+      count = 0
+      start, end = 0, 0
+      if optim_name == 'ngd':
+        for m in all_modules:
+          if m.__class__.__name__ == 'Linear':
+            with torch.no_grad():
+              I = m.I
+              G = m.G
+              J = torch.einsum('ni,no->nio', I, G)
+              J = J.reshape(J.size(0), -1)
+              JTDJ = torch.matmul(J.t(), torch.matmul(m.NGD_inv, J)) / args.batch_size
+
+              with open('ngd/' + str(epoch) + '_m_' + str(count) + '_inv.npy', 'wb') as f:
+                np.save(f, ((torch.eye(JTDJ.size(0)).to(JTDJ.device) - JTDJ) / damping).cpu().numpy())
+                count += 1
+
+          elif m.__class__.__name__ == 'Conv2d':
+            with torch.no_grad():
+              AX = m.AX
+              AX = AX.reshape(AX.size(0), -1)
+              JTDJ = torch.matmul(AX.t(), torch.matmul(m.NGD_inv, AX)) / args.batch_size
+              with open('ngd/' + str(epoch) + '_m_' + str(count) + '_inv.npy', 'wb') as f:
+                np.save(f, ((torch.eye(JTDJ.size(0)).to(JTDJ.device) - JTDJ) / damping).cpu().numpy())
+                count += 1
+
+      elif optim_name == 'exact_ngd':
+        for m in all_modules:
+          if m.__class__.__name__ in ['Conv2d', 'Linear']:
+            with open('exact/' + str(epoch) + '_m_' + str(count) + '_inv.npy', 'wb') as f:
+              end = start + m.weight.data.reshape(1, -1).size(1)
+              np.save(f, inv[start:end,start:end].cpu().numpy())
+              start = end + m.bias.data.size(0)
+              count += 1
+
+      elif optim_name == 'kfac':
+        for m in all_modules:
+          if m.__class__.__name__ in ['Conv2d', 'Linear']:
+            with open('kfac/' + str(epoch) + '_m_' + str(count) + '_inv.npy', 'wb') as f:
+              G = optimizer.m_gg[m]
+              A = optimizer.m_aa[m]
+
+              H_g = torch.linalg.inv(G + math.sqrt(damping) * torch.eye(G.size(0)).to(G.device))
+              H_a = torch.linalg.inv(A + math.sqrt(damping) * torch.eye(A.size(0)).to(A.device))
+
+              end = m.weight.data.reshape(1, -1).size(1)
+              kfac_inv = torch.kron(H_a, H_g)[:end,:end]
+              np.save(f, kfac_inv.cpu().numpy())
+              count += 1
 
     return acc, train_loss
 
