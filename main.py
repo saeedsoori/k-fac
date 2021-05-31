@@ -1,7 +1,7 @@
 '''Train CIFAR10/CIFAR100 with PyTorch.'''
 import argparse
 import os
-from optimizers import (KFACOptimizer, EKFACOptimizer, KBFGSOptimizer, KBFGSLOptimizer, NGDOptimizer)
+from optimizers import (KFACOptimizer, EKFACOptimizer, KBFGSOptimizer, KBFGSLOptimizer, KBFGSL2LOOPOptimizer, KBFGSLMEOptimizer, NGDOptimizer)
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -222,6 +222,28 @@ elif optim_name == 'kbfgsl':
                                 TCov=args.TCov,
                                 TInv=args.TInv,
                                 num_s_y_pairs=args.num_s_y_pairs)
+elif optim_name == 'kbfgsl_2loop':
+    print('K-BFGS(L) two-loop optimizer selected.')
+    optimizer = KBFGSL2LOOPOptimizer(net,
+                                     lr=args.learning_rate,
+                                     momentum=args.momentum,
+                                     weight_decay=args.weight_decay,
+                                     stat_decay=args.stat_decay,
+                                     damping=args.damping,
+                                     TCov=args.TCov,
+                                     TInv=args.TInv,
+                                     num_s_y_pairs=args.num_s_y_pairs)
+elif optim_name == 'kbfgsl_mem_eff':
+    print('K-BFGS(L) memory efficient optimizer selected.')
+    optimizer = KBFGSLMEOptimizer(net,
+                                  lr=args.learning_rate,
+                                  momentum=args.momentum,
+                                  weight_decay=args.weight_decay,
+                                  stat_decay=args.stat_decay,
+                                  damping=args.damping,
+                                  TCov=args.TCov,
+                                  TInv=args.TInv,
+                                  num_s_y_pairs=args.num_s_y_pairs)
 elif optim_name == 'adam':
     print('Adam optimizer selected.')
     optimizer = optim.Adam(net.parameters(),
@@ -337,7 +359,7 @@ def train(epoch):
                 optimizer.zero_grad()  # clear the gradient for computing true-fisher.
             loss.backward()
             optimizer.step()
-        elif optim_name in ['kbfgs', 'kbfgsl']:
+        elif optim_name in ['kbfgs', 'kbfgsl', 'kbfgsl_2loop', 'kbfgsl_mem_eff']:
             inputs, targets = inputs.to(args.device), targets.to(args.device)
             optimizer.zero_grad()
             outputs = net.forward(inputs)
