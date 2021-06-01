@@ -428,10 +428,12 @@ class KBFGSLOptimizer(optim.Optimizer):
 
             self._prepare_model(model_new, cloned=True)
 
-            inputs, targets, criterion = closure()
+            inputs, targets, criterion, is_autoencoder = closure()
 
             next_outputs = model_new.forward(inputs)
             next_loss = criterion(next_outputs, targets)
+            if is_autoencoder:
+                next_loss /= targets.size(0)
 
             model_new.zero_grad()
             next_loss.backward()

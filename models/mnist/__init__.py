@@ -13,3 +13,4 @@ from .convnet import *
 from .fc import *
 from .bn import *
 from .toy import *
+from .autoencoder import *

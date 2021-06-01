@@ -41,12 +41,10 @@ def get_transforms(dataset):
     if dataset == 'mnist':
         transform_train = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,))
         ])
 
         transform_test = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,))
         ])
 
     if dataset == 'fashion-mnist':
