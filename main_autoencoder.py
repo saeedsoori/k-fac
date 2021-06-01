@@ -66,6 +66,7 @@ parser.add_argument('--weight_decay', default=3e-3, type=float)
 parser.add_argument('--TCov', default=20, type=int)
 parser.add_argument('--TScal', default=20, type=int)
 parser.add_argument('--TInv', default=100, type=int)
+parser.add_argument('--true_fisher', default='false', type=str)
 
 # for ngd optimizer
 parser.add_argument('--freq', default=100, type=int)
@@ -335,14 +336,38 @@ def train(epoch):
 
     prog_bar = tqdm(enumerate(trainloader), total=len(trainloader), desc=desc, leave=True)
     for batch_idx, (inputs, _) in prog_bar:
-
-        if optim_name in ['kfac', 'ekfac', 'sgd', 'adam'] :
+        if optim_name == 'ekfac':
             inputs = inputs.to(args.device)
             targets = inputs.view(inputs.size(0), -1)
             optimizer.zero_grad()
             outputs = net(inputs)
             loss = criterion(outputs, targets) / args.batch_size
-            if optim_name in ['kfac', 'ekfac'] and optimizer.steps % optimizer.TCov == 0:
+            if optim_name == 'ekfac' and optimizer.steps % optimizer.TCov == 0:
+                if args.true_fisher == 'true':
+                  # compute true fisher
+                  optimizer.acc_stats = True
+                  with torch.no_grad():
+                    pred_dist = torch.sigmoid(outputs.cpu().data)
+                    sampled_y = torch.distributions.Bernoulli(pred_dist).sample().to(args.device)
+                  loss_sample = criterion(outputs, sampled_y) / args.batch_size
+                  loss_sample.backward(retain_graph=True)
+                  optimizer.acc_stats = False
+                  optimizer.zero_grad()  # clear the gradient for computing true-fisher.
+                  loss.backward()
+                else:
+                  optimizer.acc_stats = True
+                  loss.backward()
+                  optimizer.acc_stats = False
+            else:
+              loss.backward()
+            optimizer.step()
+        elif optim_name in ['kfac', 'sgd', 'adam'] :
+            inputs = inputs.to(args.device)
+            targets = inputs.view(inputs.size(0), -1)
+            optimizer.zero_grad()
+            outputs = net(inputs)
+            loss = criterion(outputs, targets) / args.batch_size
+            if optim_name == 'kfac' and optimizer.steps % optimizer.TCov == 0:
                 # compute true fisher
                 optimizer.acc_stats = True
                 with torch.no_grad():
