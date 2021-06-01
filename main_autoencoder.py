@@ -363,7 +363,7 @@ def train(epoch):
             loss.backward()
             # do another forward-backward pass over batch inside step()
             def closure():
-                return inputs, targets, criterion
+                return inputs, targets, criterion, (args.network == 'autoencoder')
             optimizer.step(closure)
         elif optim_name == 'exact_ngd':
             inputs = inputs.to(args.device)
