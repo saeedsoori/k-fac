@@ -1,5 +1,5 @@
 import math
-
+import numpy as np
 import torch
 import torch.optim as optim
 
@@ -19,7 +19,8 @@ class EKFACOptimizer(optim.Optimizer):
                  TCov=10,
                  TScal=10,
                  TInv=100,
-                 batch_averaged=True):
+                 batch_averaged=True,
+                 torch_symeig='true'):
         if lr < 0.0:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if momentum < 0.0:
@@ -56,6 +57,8 @@ class EKFACOptimizer(optim.Optimizer):
         self.TCov = TCov
         self.TScal = TScal
         self.TInv = TInv
+
+        self.torch_symeig = torch_symeig
 
     def _save_input(self, module, input):
         if torch.is_grad_enabled() and self.steps % self.TCov == 0:
@@ -101,16 +104,27 @@ class EKFACOptimizer(optim.Optimizer):
         :param m: The layer
         :return: no returns.
         """
-        eps = 1e-10  # for numerical stability
-        self.d_a[m], self.Q_a[m] = torch.symeig(
-            self.m_aa[m], eigenvectors=True)
-        self.d_g[m], self.Q_g[m] = torch.symeig(
-            self.m_gg[m], eigenvectors=True)
+        if self.torch_symeig == 'true':
+            eps = 1e-10  # for numerical stability
+            self.d_a[m], self.Q_a[m] = torch.symeig(
+                self.m_aa[m], eigenvectors=True)
+            self.d_g[m], self.Q_g[m] = torch.symeig(
+                self.m_gg[m], eigenvectors=True)
 
-        self.d_a[m].mul_((self.d_a[m] > eps).float())
-        self.d_g[m].mul_((self.d_g[m] > eps).float())
-        # if self.steps != 0:
-        self.S_l[m] = self.d_g[m].unsqueeze(1) @ self.d_a[m].unsqueeze(0)
+            self.d_a[m].mul_((self.d_a[m] > eps).float())
+            self.d_g[m].mul_((self.d_g[m] > eps).float())
+            # if self.steps != 0:
+            self.S_l[m] = self.d_g[m].unsqueeze(1) @ self.d_a[m].unsqueeze(0)
+        else:
+            d_a, Q_a = np.linalg.eig(self.m_aa[m].cpu().data)
+            self.d_a[m], self.Q_a[m] = torch.from_numpy(d_a.real).to(
+                self.m_aa[m].device), torch.from_numpy(Q_a.real).to(self.m_gg[m].device)
+            d_g, Q_g = np.linalg.eig(self.m_gg[m].cpu().data)
+            self.d_g[m], self.Q_g[m] = torch.from_numpy(d_g.real).to(
+                self.m_gg[m].device), torch.from_numpy(Q_g.real).to(self.m_gg[m].device)
+
+            self.S_l[m] = self.d_g[m].unsqueeze(1) @ self.d_a[m].unsqueeze(0)
+
 
     @staticmethod
     def _get_matrix_form_grad(m, classname):
