@@ -116,12 +116,13 @@ class EKFACOptimizer(optim.Optimizer):
             # if self.steps != 0:
             self.S_l[m] = self.d_g[m].unsqueeze(1) @ self.d_a[m].unsqueeze(0)
         else:
-            d_a, Q_a = np.linalg.eig(self.m_aa[m].cpu().data)
-            self.d_a[m], self.Q_a[m] = torch.from_numpy(d_a.real).to(
-                self.m_aa[m].device), torch.from_numpy(Q_a.real).to(self.m_gg[m].device)
-            d_g, Q_g = np.linalg.eig(self.m_gg[m].cpu().data)
-            self.d_g[m], self.Q_g[m] = torch.from_numpy(d_g.real).to(
-                self.m_gg[m].device), torch.from_numpy(Q_g.real).to(self.m_gg[m].device)
+            d_a, self.Q_a[m] = torch.eig(self.m_aa[m], eigenvectors=True)
+            d_g, self.Q_g[m] = torch.eig(self.m_gg[m], eigenvectors=True)
+            self.d_a[m] = d_a[:,0]
+            self.d_g[m] = d_g[:,0]
+
+            self.d_a[m].mul_((self.d_a[m] > eps).float())
+            self.d_g[m].mul_((self.d_g[m] > eps).float())
 
             self.S_l[m] = self.d_g[m].unsqueeze(1) @ self.d_a[m].unsqueeze(0)
 
