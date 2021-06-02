@@ -18,7 +18,8 @@ class KFACOptimizer(optim.Optimizer):
                  weight_decay=0,
                  TCov=10,
                  TInv=100,
-                 batch_averaged=True):
+                 batch_averaged=True,
+                 torch_symeig='true'):
         if lr < 0.0:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if momentum < 0.0:
@@ -51,6 +52,8 @@ class KFACOptimizer(optim.Optimizer):
         self.kl_clip = kl_clip
         self.TCov = TCov
         self.TInv = TInv
+
+        self.torch_symeig = torch_symeig
 
     def _save_input(self, module, input):
         if torch.is_grad_enabled() and self.steps % self.TCov == 0:
@@ -87,19 +90,23 @@ class KFACOptimizer(optim.Optimizer):
                 print('(%s): %s' % (count, module))
                 count += 1
 
-    def _update_inv(self, m):
+    def _update_inv(self, m, damping):
         """Do eigen decomposition for computing inverse of the ~ fisher.
         :param m: The layer
         :return: no returns.
         """
-        eps = 1e-10  # for numerical stability
-        self.d_a[m], self.Q_a[m] = torch.symeig(
-            self.m_aa[m], eigenvectors=True)
-        self.d_g[m], self.Q_g[m] = torch.symeig(
-            self.m_gg[m], eigenvectors=True)
+        if self.torch_symeig == 'true':
+            eps = 1e-10  # for numerical stability
+            self.d_a[m], self.Q_a[m] = torch.symeig(
+                self.m_aa[m], eigenvectors=True)
+            self.d_g[m], self.Q_g[m] = torch.symeig(
+                self.m_gg[m], eigenvectors=True)
 
-        self.d_a[m].mul_((self.d_a[m] > eps).float())
-        self.d_g[m].mul_((self.d_g[m] > eps).float())
+            self.d_a[m].mul_((self.d_a[m] > eps).float())
+            self.d_g[m].mul_((self.d_g[m] > eps).float())
+        else:
+            self.H_a[m] = torch.linalg.inv(self.m_aa[m] + math.sqrt(damping) * torch.eye(self.m_aa[m].size(0)).to(self.m_aa[m].device))
+            self.H_g[m] = torch.linalg.inv(self.m_gg[m] + math.sqrt(damping) * torch.eye(self.m_gg[m].size(0)).to(self.m_gg[m].device))
 
     @staticmethod
     def _get_matrix_form_grad(m, classname):
@@ -124,10 +131,12 @@ class KFACOptimizer(optim.Optimizer):
         """
         # p_grad_mat is of output_dim * input_dim
         # inv((ss')) p_grad_mat inv(aa') = [ Q_g (1/R_g) Q_g^T ] @ p_grad_mat @ [Q_a (1/R_a) Q_a^T]
-        
-        v1 = self.Q_g[m].t() @ p_grad_mat @ self.Q_a[m]
-        v2 = v1 / (self.d_g[m].unsqueeze(1) * self.d_a[m].unsqueeze(0) + damping)
-        v = self.Q_g[m] @ v2 @ self.Q_a[m].t()
+        if self.torch_symeig == 'true':
+            v1 = self.Q_g[m].t() @ p_grad_mat @ self.Q_a[m]
+            v2 = v1 / (self.d_g[m].unsqueeze(1) * self.d_a[m].unsqueeze(0) + damping)
+            v = self.Q_g[m] @ v2 @ self.Q_a[m].t()
+        else:
+            v = self.H_g[m] @ p_grad_mat @ self.H_a[m]
         if m.bias is not None:
             # we always put gradient w.r.t weight in [0]
             # and w.r.t bias in [1]
@@ -190,7 +199,7 @@ class KFACOptimizer(optim.Optimizer):
         for m in self.modules:
             classname = m.__class__.__name__
             if self.steps % self.TInv == 0:
-                self._update_inv(m)
+                self._update_inv(m, damping)
             p_grad_mat = self._get_matrix_form_grad(m, classname)
             v = self._get_natural_grad(m, p_grad_mat, damping)
             updates[m] = v

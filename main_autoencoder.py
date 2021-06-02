@@ -67,6 +67,7 @@ parser.add_argument('--TCov', default=20, type=int)
 parser.add_argument('--TScal', default=20, type=int)
 parser.add_argument('--TInv', default=100, type=int)
 parser.add_argument('--true_fisher', default='false', type=str)
+parser.add_argument('--torch_symeig', default='true', type=str)
 
 # for ngd optimizer
 parser.add_argument('--freq', default=100, type=int)
@@ -148,7 +149,8 @@ elif optim_name == 'kfac':
                               kl_clip=args.kl_clip,
                               weight_decay=args.weight_decay,
                               TCov=args.TCov,
-                              TInv=args.TInv)
+                              TInv=args.TInv,
+                              torch_symeig=args.torch_symeig)
     if args.save_inv == 'true':
       os.mkdir('kfac')
 
@@ -162,7 +164,8 @@ elif optim_name == 'ekfac':
                                weight_decay=args.weight_decay,
                                TCov=args.TCov,
                                TScal=args.TScal,
-                               TInv=args.TInv)
+                               TInv=args.TInv,
+                               torch_symeig=args.torch_symeig)
 elif optim_name == 'ngd':
     print('NGD optimizer selected.')
     # optimizer = optim.SGD(net.parameters(),
