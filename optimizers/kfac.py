@@ -45,6 +45,7 @@ class KFACOptimizer(optim.Optimizer):
         self.steps = 0
 
         self.m_aa, self.m_gg = {}, {}
+        self.H_a, self.H_g = {}, {}
         self.Q_a, self.Q_g = {}, {}
         self.d_a, self.d_g = {}, {}
         self.stat_decay = stat_decay
