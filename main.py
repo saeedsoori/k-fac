@@ -25,7 +25,7 @@ from torch import einsum, matmul, eye
 from torch.linalg import inv
 import numpy as np
 # for REPRODUCIBILITY
-# torch.manual_seed(0)
+torch.manual_seed(0)
 
 # fetch args
 parser = argparse.ArgumentParser()
@@ -612,6 +612,7 @@ def train(epoch):
             with torch.no_grad():
                 for name, param in net.named_parameters():
                     d_p = param.grad.data
+                    # print('=== step ===')
 
                     # apply momentum
                     if args.momentum != 0:
@@ -624,6 +625,8 @@ def train(epoch):
 
                     lr = lr_scheduler.get_last_lr()[0]
                     param.data.add_(-lr, d_p)
+                    # print('d_p:', d_p.shape)
+                    # print(d_p)
 
 
 
