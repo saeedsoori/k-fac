@@ -324,6 +324,7 @@ def store_io_(Flag=True):
 
 
 def train(epoch):
+    torch.set_printoptions(precision=16)
     print('\nEpoch: %d' % epoch)
     net.train()
     train_loss = 0
@@ -790,7 +791,7 @@ def optimal_JJT_v2(outputs, targets, batch_size, damping=1.0, alpha=0.95, low_ra
             update_list[name] = param.fisher_block
         else:
             update_list[name] = param.grad.data
-        
+
     return update_list, loss
 
 def main():
