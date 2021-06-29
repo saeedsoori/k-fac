@@ -94,6 +94,7 @@ class NGDOptimizer(optim.Optimizer):
         elif classname == 'conv2d':
             # SAEED: @TODO: we don't need II and GG after computations, clear the memory
             if m.optimized == True:
+                print('=== optimized ===')
                 II = self.m_I[m][0]
                 GG = self.m_G[m][0]
                 n = II.shape[0]
@@ -119,6 +120,7 @@ class NGDOptimizer(optim.Optimizer):
                 self.m_NGD_Kernel[m] = NGD_inv
                 ### low-rank approximation of Jacobian
                 if self.low_rank == 'true':
+                    print('=== low rank ===')
                     V, S, U = svd(AX_.T, compute_uv=True, full_matrices=False)
                     U = U.t()
                     V = V.t()
@@ -171,6 +173,7 @@ class NGDOptimizer(optim.Optimizer):
         elif classname == 'conv2d':
             grad_reshape = grad.reshape(grad.shape[0], -1)
             if m.optimized == True:
+                print('=== optimized ===')
                 I = self.m_I[m][1]
                 G = self.m_G[m][1]
                 n = I.shape[0]
@@ -202,6 +205,7 @@ class NGDOptimizer(optim.Optimizer):
             else:
                 # TODO(bmu): fix low rank
                 if self.low_rank.lower() == 'true':
+                    print("=== low rank ===")
                     ###### using low rank structure
                     U, S, V = self.m_UV[m]
                     NGD_inv = self.m_NGD_Kernel[m]
@@ -265,9 +269,18 @@ class NGDOptimizer(optim.Optimizer):
         vg_sum = 0
         for m in self.modules:
             v = updates[m]
-            vg_sum += (v[0] * m.weight.grad.data * lr ** 2).sum().item()
+            vg_sum += (v[0] * m.weight.grad.data).sum().item()
             if m.bias is not None:
-                vg_sum += (v[1] * m.bias.grad.data * lr ** 2).sum().item()
+                vg_sum += (v[1] * m.bias.grad.data).sum().item()
+
+        for m in self.model.modules():
+            classname = m.__class__.__name__
+            if classname in ['BatchNorm1d', 'BatchNorm2d']:
+                vg_sum += (m.weight.grad.data * m.weight.grad.data).sum().item()
+                if m.bias is not None:
+                    vg_sum += (m.bias.grad.data * m.bias.grad.data).sum().item()
+        vg_sum = vg_sum * (lr ** 2)
+
         nu = min(1.0, math.sqrt(self.kl_clip / vg_sum))
 
         for m in self.modules:
@@ -277,6 +290,13 @@ class NGDOptimizer(optim.Optimizer):
             if m.bias is not None:
                 m.bias.grad.data.copy_(v[1])
                 m.bias.grad.data.mul_(nu)
+
+        for m in self.model.modules():
+            classname = m.__class__.__name__
+            if classname in ['BatchNorm1d', 'BatchNorm2d']:
+                m.weight.grad.data.mul_(nu)
+                if m.bias is not None:
+                    m.bias.grad.data.mul_(nu)
 
     def _step(self, closure):
         # FIXME (CW): Modified based on SGD (removed nestrov and dampening in momentum.)
@@ -298,7 +318,7 @@ class NGDOptimizer(optim.Optimizer):
                     else:
                         buf = param_state['momentum_buffer']
                         buf.mul_(momentum).add_(1, d_p)
-                    d_p = buf
+                    d_p.copy_(buf)
 
                 # if weight_decay != 0 and self.steps >= 10 * self.freq:
                 if weight_decay != 0:
