@@ -26,6 +26,11 @@ from torch.linalg import inv
 import numpy as np
 # for REPRODUCIBILITY
 torch.manual_seed(0)
+torch.use_deterministic_algorithms(True)
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+# np.random.seed(0)
+# import random
+# random.seed(0)
 
 # fetch args
 parser = argparse.ArgumentParser()
@@ -201,7 +206,8 @@ elif optim_name == 'kngd':
                               weight_decay=args.weight_decay,
                               freq=args.freq,
                               gamma=args.gamma,
-                              low_rank=args.low_rank)
+                              low_rank=args.low_rank,
+                              super_opt=args.super_opt)
 
 elif optim_name == 'kbfgs':
     print('K-BFGS optimizer selected.')
