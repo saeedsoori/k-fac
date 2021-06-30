@@ -17,7 +17,8 @@ class NGDOptimizer(optim.Optimizer):
                  weight_decay=0.003,
                  freq=100,
                  gamma=0.9,
-                 low_rank='true'):
+                 low_rank='true',
+                 super_opt='false'):
         if lr < 0.0:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if momentum < 0.0:
@@ -48,18 +49,19 @@ class NGDOptimizer(optim.Optimizer):
         self.freq = freq
         self.gamma = gamma
         self.low_rank = low_rank
+        self.super_opt = super_opt
         self.damping = damping
 
     def _save_input(self, module, input):
         # storing the optimized input in forward pass
         if torch.is_grad_enabled() and self.steps % self.freq == 0:
-            II, I = self.IHandler(input[0].data, module)
+            II, I = self.IHandler(input[0].data, module, self.super_opt)
             self.m_I[module] = II, I
 
     def _save_grad_output(self, module, grad_input, grad_output):
         # storing the optimized gradients in backward pass
         if self.acc_stats and self.steps % self.freq == 0:
-            GG, G = self.GHandler(grad_output[0].data, module)
+            GG, G = self.GHandler(grad_output[0].data, module, self.super_opt)
             self.m_G[module] = GG, G
 
     def _prepare_model(self):
@@ -94,7 +96,7 @@ class NGDOptimizer(optim.Optimizer):
         elif classname == 'conv2d':
             # SAEED: @TODO: we don't need II and GG after computations, clear the memory
             if m.optimized == True:
-                print('=== optimized ===')
+                # print('=== optimized ===')
                 II = self.m_I[m][0]
                 GG = self.m_G[m][0]
                 n = II.shape[0]
@@ -173,7 +175,7 @@ class NGDOptimizer(optim.Optimizer):
         elif classname == 'conv2d':
             grad_reshape = grad.reshape(grad.shape[0], -1)
             if m.optimized == True:
-                print('=== optimized ===')
+                # print('=== optimized ===')
                 I = self.m_I[m][1]
                 G = self.m_G[m][1]
                 n = I.shape[0]
@@ -181,24 +183,15 @@ class NGDOptimizer(optim.Optimizer):
 
                 x1 = einsum("nkl,mk->nml", (I, grad_reshape))
                 grad_prod = einsum("nml,nml->n", (x1, G)) 
-
-                bias_update = None
-                grad_prod_bias = 0
-                if m.bias is not None:
-                    grad_bias = m.bias.grad.data
-                    grad_prod_bias = einsum("nml,m->n", (G, grad_bias))
-
-                v = matmul(NGD_inv, (grad_prod + grad_prod_bias).unsqueeze(1)).squeeze()
+                v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
                 gv = einsum("n,nml->nml", (v, G))
-                if m.bias is not None:
-                    gv_bias = einsum("nml->m", gv)
-                    gv_bias = gv_bias.view_as(grad_bias)
-                    gv_bias = gv_bias / n
-                    bias_update = (grad_bias - gv_bias)/damping
-
                 gv = einsum("nml,nkl->mk", (gv, I))
                 gv = gv.view_as(grad)
                 gv = gv / n
+
+                bias_update = None
+                if m.bias is not None:
+                    bias_update = m.bias.grad.data
                 
                 updates = (grad - gv)/damping, bias_update
 
@@ -255,8 +248,7 @@ class NGDOptimizer(optim.Optimizer):
 
                     bias_update = None
                     if m.bias is not None:
-                        grad_bias = m.bias.grad.data
-                        bias_update = grad_bias
+                        bias_update = m.bias.grad.data
 
                     updates = (grad - gv) / damping, bias_update
 
