@@ -44,6 +44,7 @@ class NGDOptimizer(optim.Optimizer):
         self.m_UV = {}
         self.m_NGD_Kernel = {}
         self.m_bias_Kernel = {}
+        self.m_AX = {}
 
         self.kl_clip = kl_clip
         self.freq = freq
@@ -120,9 +121,10 @@ class NGDOptimizer(optim.Optimizer):
                 NGD_kernel = out / n
                 NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(I.device))
                 self.m_NGD_Kernel[m] = NGD_inv
+                self.m_AX[m] = AX
                 ### low-rank approximation of Jacobian
                 if self.low_rank == 'true':
-                    print('=== low rank ===')
+                    # print('=== low rank ===')
                     V, S, U = svd(AX_.T, compute_uv=True, full_matrices=False)
                     U = U.t()
                     V = V.t()
@@ -136,7 +138,7 @@ class NGDOptimizer(optim.Optimizer):
                 del I
                 self.m_I[m] = None, self.m_I[m][1]
                 del AX_
-                del AX
+                # del AX
                 torch.cuda.empty_cache()
 
     def _get_natural_grad(self, m, damping):
@@ -198,7 +200,7 @@ class NGDOptimizer(optim.Optimizer):
             else:
                 # TODO(bmu): fix low rank
                 if self.low_rank.lower() == 'true':
-                    print("=== low rank ===")
+                    # print("=== low rank ===")
                     ###### using low rank structure
                     U, S, V = self.m_UV[m]
                     NGD_inv = self.m_NGD_Kernel[m]
@@ -234,12 +236,10 @@ class NGDOptimizer(optim.Optimizer):
 
                     updates = (grad - gv)/damping, bias_update
                 else:
-                    I = self.m_I[m][1]
-                    G = self.m_G[m][1]
-                    n = I.shape[0]
-                    AX = einsum("nkl,nml->nkm", (I, G))
-                    NGD_inv = self.m_NGD_Kernel[m]
+                    AX = self.m_AX[m]
+                    n = AX.shape[0]
 
+                    NGD_inv = self.m_NGD_Kernel[m]
                     grad_prod = einsum('nkm,mk->n', (AX, grad_reshape))
                     v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
                     gv = einsum('nkm,n->mk', (AX, v))
@@ -259,33 +259,32 @@ class NGDOptimizer(optim.Optimizer):
         # do kl clip
 
         vg_sum = 0
-        for m in self.modules:
-            v = updates[m]
-            vg_sum += (v[0] * m.weight.grad.data).sum().item()
-            if m.bias is not None:
-                vg_sum += (v[1] * m.bias.grad.data).sum().item()
 
         for m in self.model.modules():
             classname = m.__class__.__name__
-            if classname in ['BatchNorm1d', 'BatchNorm2d']:
+            if classname in self.known_modules:
+                v = updates[m]
+                vg_sum += (v[0] * m.weight.grad.data).sum().item()
+                if m.bias is not None:
+                    vg_sum += (v[1] * m.bias.grad.data).sum().item()
+            elif classname in ['BatchNorm1d', 'BatchNorm2d']:
                 vg_sum += (m.weight.grad.data * m.weight.grad.data).sum().item()
                 if m.bias is not None:
                     vg_sum += (m.bias.grad.data * m.bias.grad.data).sum().item()
+
         vg_sum = vg_sum * (lr ** 2)
 
         nu = min(1.0, math.sqrt(self.kl_clip / vg_sum))
 
-        for m in self.modules:
-            v = updates[m]
-            m.weight.grad.data.copy_(v[0])
-            m.weight.grad.data.mul_(nu)
-            if m.bias is not None:
-                m.bias.grad.data.copy_(v[1])
-                m.bias.grad.data.mul_(nu)
-
         for m in self.model.modules():
-            classname = m.__class__.__name__
-            if classname in ['BatchNorm1d', 'BatchNorm2d']:
+            if m.__class__.__name__ in ['Linear', 'Conv2d']:
+                v = updates[m]
+                m.weight.grad.data.copy_(v[0])
+                m.weight.grad.data.mul_(nu)
+                if v[1] is not None:
+                    m.bias.grad.data.copy_(v[1])
+                    m.bias.grad.data.mul_(nu)
+            elif m.__class__.__name__ in ['BatchNorm1d', 'BatchNorm2d']:
                 m.weight.grad.data.mul_(nu)
                 if m.bias is not None:
                     m.bias.grad.data.mul_(nu)
@@ -302,15 +301,15 @@ class NGDOptimizer(optim.Optimizer):
                     continue
                 d_p = p.grad.data
                 
-                if momentum != 0:
-                    param_state = self.state[p]
-                    if 'momentum_buffer' not in param_state:
-                        buf = param_state['momentum_buffer'] = torch.zeros_like(p.data)
-                        buf.mul_(momentum).add_(d_p)
-                    else:
-                        buf = param_state['momentum_buffer']
-                        buf.mul_(momentum).add_(1, d_p)
-                    d_p.copy_(buf)
+                # if momentum != 0:
+                #     param_state = self.state[p]
+                #     if 'momentum_buffer' not in param_state:
+                #         buf = param_state['momentum_buffer'] = torch.zeros_like(p.data)
+                #         buf.mul_(momentum).add_(d_p)
+                #     else:
+                #         buf = param_state['momentum_buffer']
+                #         buf.mul_(momentum).add_(1, d_p)
+                #     d_p.copy_(buf)
 
                 # if weight_decay != 0 and self.steps >= 10 * self.freq:
                 if weight_decay != 0:
