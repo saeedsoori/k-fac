@@ -28,9 +28,9 @@ import numpy as np
 torch.manual_seed(0)
 torch.use_deterministic_algorithms(True)
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-# np.random.seed(0)
-# import random
-# random.seed(0)
+np.random.seed(0)
+import random
+random.seed(0)
 
 # fetch args
 parser = argparse.ArgumentParser()
@@ -508,7 +508,7 @@ def train(epoch):
                 elif module_names == 'features':
                     all_modules = net.features.children()
 
-                for m in all_modules:
+                for m in net.modules():
                     if hasattr(m, "NGD_inv"):                    
                         grad = m.weight.grad
                         if isinstance(m, nn.Linear):
