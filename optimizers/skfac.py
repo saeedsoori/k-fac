@@ -18,6 +18,8 @@ class SKFACOptimizer(optim.Optimizer):
                  weight_decay=0,
                  TCov=10,
                  TInv=100,
+                 subsample='false',
+                 num_ss_patches=0,
                  batch_averaged=True):
         if lr < 0.0:
             raise ValueError("Invalid learning rate: {}".format(lr))
@@ -54,6 +56,9 @@ class SKFACOptimizer(optim.Optimizer):
         self.TCov = TCov
         self.TInv = TInv
 
+        self.subsample = subsample
+        self.num_ss_patches = num_ss_patches
+
     def _save_input(self, module, input):
         if torch.is_grad_enabled() and self.steps % self.TCov == 0:
             a = input[0].data
@@ -62,7 +67,7 @@ class SKFACOptimizer(optim.Optimizer):
             if self.steps == 0:
                 self.m_a[module] = torch.zeros_like(a)
             update_running_stat(a, self.m_a[module], self.stat_decay)
-            self.aaT[module], self.a[module] = self.CovAHandler(self.m_a[module], module)
+            self.aaT[module], self.a[module] = self.CovAHandler(self.m_a[module], module, self.subsample, self.num_ss_patches)
 
     def _save_grad_output(self, module, grad_input, grad_output):
         # Accumulate statistics for Fisher matrices
@@ -73,7 +78,7 @@ class SKFACOptimizer(optim.Optimizer):
             if self.steps == 0:
                 self.m_g[module] = torch.zeros_like(g)
             update_running_stat(g, self.m_g[module], self.stat_decay)
-            self.ggT[module], self.g[module] = self.CovGHandler(self.m_g[module], module, self.batch_averaged)
+            self.ggT[module], self.g[module] = self.CovGHandler(self.m_g[module], module, self.subsample, self.num_ss_patches, self.batch_averaged)
 
     def _prepare_model(self):
         count = 0
@@ -96,6 +101,8 @@ class SKFACOptimizer(optim.Optimizer):
         """
         n = self.m_a[m].size(0)
         a, g = self.a[m], self.g[m]
+        if self.subsample == 'true' and m.__class__.__name__ == 'Conv2d':
+            n *= self.num_ss_patches
 
         self.H_a[m] = a.t() @ torch.cholesky_inverse(self.aaT[m] + n * math.sqrt(damping) * torch.eye(n).to(self.aaT[m].device)) @ a
         self.H_a[m] = (torch.eye(self.H_a[m].size(0)).to(self.H_a[m].device) - self.H_a[m]) / math.sqrt(damping)
