@@ -65,7 +65,7 @@ class ComputeCovA:
         if layer.bias is not None:
             a = torch.cat([a, a.new(a.size(0), a.size(1), 1).fill_(1)], 2)
 
-        a_avg = torch.mean(a, dim=1, keepdim=False) # [n, c_in * kh * kw]
+        a_avg = torch.sum(a, dim=1, keepdim=False) # [n, c_in * kh * kw]
 
         # FIXME(CW): do we need to divide the output feature map's size?
         return a_avg @ (a_avg.t() / batch_size), a_avg
@@ -111,7 +111,7 @@ class ComputeCovG:
         batch_size = g.shape[0]
 
         g = g.view(g.size(0), g.size(1), g.size(2) * g.size(3)) # [n, c_out, sh * sw]
-        g_avg = torch.mean(g, dim=2, keepdim=False) # [n, c_out]
+        g_avg = torch.sum(g, dim=2, keepdim=False) # [n, c_out]
 
         if batch_averaged:
             g_avg = g_avg * batch_size
