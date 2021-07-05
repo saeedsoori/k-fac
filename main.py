@@ -332,10 +332,7 @@ if args.debug_mem == 'true':
   TRAIN_INFO['memory'] = []
   
 def store_io_(Flag=True):
-    if module_names == 'children':
-        all_modules = net.children()
-    elif module_names == 'features':
-        all_modules = net.features.children()
+    all_modules = net.modules()
     for m in all_modules:
         if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
             m.training = Flag
@@ -514,10 +511,7 @@ def train(epoch):
                 # with torch.no_grad():
                 # gg = torch.nn.functional.softmax(outputs, dim=1)
                     # sampled_y = torch.multinomial(torch.nn.functional.softmax(outputs, dim=1),1).squeeze().to(args.device)
-                if module_names == 'children':
-                    all_modules = net.children()
-                elif module_names == 'features':
-                    all_modules = net.features.children()
+                all_modules = net.modules()
 
                 for m in all_modules:
                     if hasattr(m, "NGD_inv"):                    
@@ -674,10 +668,7 @@ def train(epoch):
         TRAIN_INFO['epoch_time'].append(float("{:.4f}".format(epoch_time)))
     # save diagonal blocks of exact Fisher inverse or its approximations
     if args.save_inv == 'true':
-      if module_names == 'children':
-          all_modules = net.children()
-      elif module_names == 'features':
-          all_modules = net.features.children()
+      all_modules = net.modules()
 
       count = 0
       start, end = 0, 0
@@ -908,10 +899,7 @@ def get_accuracy(data):
     loss = total_loss / (batch_idx + 1)
     
     ### cleaning memory
-    if module_names == 'children':
-        all_modules = net.children()
-    elif module_names == 'features':
-        all_modules = net.features.children()
+    all_modules = net.modules()
     for m in all_modules:
         memory_cleanup(m)
     return acc, loss
