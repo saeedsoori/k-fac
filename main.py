@@ -85,6 +85,11 @@ parser.add_argument('--num_s_y_pairs', default=1000, type=int)
 
 parser.add_argument('--prefix', default=None, type=str)
 parser.add_argument('--debug_mem', default='false', type=str)
+
+# for SKFAC optimizer
+parser.add_argument('--subsample', default='false', type=str)
+parser.add_argument('--num_ss_patches', default=0, type=int)
+
 args = parser.parse_args()
 
 # init model
@@ -165,7 +170,9 @@ elif optim_name == 'skfac':
                                kl_clip=args.kl_clip,
                                weight_decay=args.weight_decay,
                                TCov=args.TCov,
-                               TInv=args.TInv)
+                               TInv=args.TInv,
+                               subsample=args.subsample,
+                               num_ss_patches=args.num_ss_patches)
 
 elif optim_name == 'ekfac':
     optimizer = EKFACOptimizer(net,
