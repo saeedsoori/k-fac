@@ -1,7 +1,7 @@
 '''Train CIFAR10/CIFAR100 with PyTorch.'''
 import argparse
 import os
-from optimizers import (KFACOptimizer, EKFACOptimizer, KBFGSOptimizer, KBFGSLOptimizer, KBFGSL2LOOPOptimizer, KBFGSLMEOptimizer, NGDOptimizer)
+from optimizers import (KFACOptimizer, SKFACOptimizer, EKFACOptimizer, KBFGSOptimizer, KBFGSLOptimizer, KBFGSL2LOOPOptimizer, KBFGSLMEOptimizer, NGDOptimizer)
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -91,6 +91,11 @@ parser.add_argument('--num_s_y_pairs', default=1000, type=int)
 
 parser.add_argument('--prefix', default=None, type=str)
 parser.add_argument('--debug_mem', default='false', type=str)
+
+# for SKFAC optimizer
+parser.add_argument('--subsample', default='false', type=str)
+parser.add_argument('--num_ss_patches', default=0, type=int)
+
 args = parser.parse_args()
 
 # init model
@@ -161,6 +166,19 @@ elif optim_name == 'kfac':
                               TInv=args.TInv)
     if args.save_inv == 'true':
       os.mkdir('kfac')
+
+elif optim_name == 'skfac':
+    optimizer = SKFACOptimizer(net,
+                               lr=args.learning_rate,
+                               momentum=args.momentum,
+                               stat_decay=args.stat_decay,
+                               damping=args.damping,
+                               kl_clip=args.kl_clip,
+                               weight_decay=args.weight_decay,
+                               TCov=args.TCov,
+                               TInv=args.TInv,
+                               subsample=args.subsample,
+                               num_ss_patches=args.num_ss_patches)
 
 elif optim_name == 'ekfac':
     optimizer = EKFACOptimizer(net,
@@ -348,12 +366,12 @@ def train(epoch):
     prog_bar = tqdm(enumerate(trainloader), total=len(trainloader), desc=desc, leave=True)
     for batch_idx, (inputs, targets) in prog_bar:
 
-        if optim_name in ['kfac', 'ekfac', 'sgd', 'adam'] :
+        if optim_name in ['kfac', 'skfac', 'ekfac', 'sgd', 'adam']:
             inputs, targets = inputs.to(args.device), targets.to(args.device)
             optimizer.zero_grad()
             outputs = net(inputs)
             loss = criterion(outputs, targets)
-            if optim_name in ['kfac', 'ekfac'] and optimizer.steps % optimizer.TCov == 0:
+            if optim_name in ['kfac', 'skfac', 'ekfac'] and optimizer.steps % optimizer.TCov == 0:
                 # compute true fisher
                 optimizer.acc_stats = True
                 with torch.no_grad():

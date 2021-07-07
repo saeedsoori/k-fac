@@ -1,4 +1,5 @@
 from .kfac import KFACOptimizer
+from .skfac import SKFACOptimizer
 from .ekfac import EKFACOptimizer
 from .kbfgs import KBFGSOptimizer
 from .kbfgsl import KBFGSLOptimizer
@@ -10,6 +11,8 @@ from .ngd import NGDOptimizer
 def get_optimizer(name):
     if name == 'kfac':
         return KFACOptimizer
+    elif name == 'skfac':
+        return SKFACOptimizer
     elif name == 'ekfac':
         return EKFACOptimizer
     elif name == 'kbfgs':
