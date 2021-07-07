@@ -25,12 +25,12 @@ from torch import einsum, matmul, eye
 from torch.linalg import inv
 import numpy as np
 # for REPRODUCIBILITY
-torch.manual_seed(0)
-torch.use_deterministic_algorithms(True)
-os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-np.random.seed(0)
-import random
-random.seed(0)
+# torch.manual_seed(0)
+# torch.use_deterministic_algorithms(True)
+# os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+# np.random.seed(0)
+# import random
+# random.seed(0)
 
 # fetch args
 parser = argparse.ArgumentParser()
@@ -601,12 +601,12 @@ def train(epoch):
 
             ##### do kl clip
             lr = lr_scheduler.get_last_lr()[0]
-            vg_sum = 0
-            vg_sum += (grad_new * grad_org ).sum()
-            vg_sum = vg_sum * (lr ** 2)
-            nu = min(1.0, math.sqrt(args.kl_clip / vg_sum))
-            for name, param in net.named_parameters():
-                param.grad.mul_(nu)
+            # vg_sum = 0
+            # vg_sum += (grad_new * grad_org ).sum()
+            # vg_sum = vg_sum * (lr ** 2)
+            # nu = min(1.0, math.sqrt(args.kl_clip / vg_sum))
+            # for name, param in net.named_parameters():
+            #     param.grad.mul_(nu)
 
             # optimizer.step()
             # manual optimizing:
@@ -616,9 +616,9 @@ def train(epoch):
                     # print('=== step ===')
 
                     # apply momentum
-                    if args.momentum != 0:
-                        buf[name].mul_(args.momentum).add_(d_p)
-                        d_p.copy_(buf[name])
+                    # if args.momentum != 0:
+                    #     buf[name].mul_(args.momentum).add_(d_p)
+                    #     d_p.copy_(buf[name])
 
                     # apply weight decay
                     if args.weight_decay != 0:

@@ -258,36 +258,36 @@ class NGDOptimizer(optim.Optimizer):
     def _kl_clip_and_update_grad(self, updates, lr):
         # do kl clip
 
-        vg_sum = 0
+        # vg_sum = 0
 
-        for m in self.model.modules():
-            classname = m.__class__.__name__
-            if classname in self.known_modules:
-                v = updates[m]
-                vg_sum += (v[0] * m.weight.grad.data).sum().item()
-                if m.bias is not None:
-                    vg_sum += (v[1] * m.bias.grad.data).sum().item()
-            elif classname in ['BatchNorm1d', 'BatchNorm2d']:
-                vg_sum += (m.weight.grad.data * m.weight.grad.data).sum().item()
-                if m.bias is not None:
-                    vg_sum += (m.bias.grad.data * m.bias.grad.data).sum().item()
+        # for m in self.model.modules():
+        #     classname = m.__class__.__name__
+        #     if classname in self.known_modules:
+        #         v = updates[m]
+        #         vg_sum += (v[0] * m.weight.grad.data).sum().item()
+        #         if m.bias is not None:
+        #             vg_sum += (v[1] * m.bias.grad.data).sum().item()
+        #     elif classname in ['BatchNorm1d', 'BatchNorm2d']:
+        #         vg_sum += (m.weight.grad.data * m.weight.grad.data).sum().item()
+        #         if m.bias is not None:
+        #             vg_sum += (m.bias.grad.data * m.bias.grad.data).sum().item()
 
-        vg_sum = vg_sum * (lr ** 2)
+        # vg_sum = vg_sum * (lr ** 2)
 
-        nu = min(1.0, math.sqrt(self.kl_clip / vg_sum))
+        # nu = min(1.0, math.sqrt(self.kl_clip / vg_sum))
 
         for m in self.model.modules():
             if m.__class__.__name__ in ['Linear', 'Conv2d']:
                 v = updates[m]
                 m.weight.grad.data.copy_(v[0])
-                m.weight.grad.data.mul_(nu)
+                # m.weight.grad.data.mul_(nu)
                 if v[1] is not None:
                     m.bias.grad.data.copy_(v[1])
-                    m.bias.grad.data.mul_(nu)
-            elif m.__class__.__name__ in ['BatchNorm1d', 'BatchNorm2d']:
-                m.weight.grad.data.mul_(nu)
-                if m.bias is not None:
-                    m.bias.grad.data.mul_(nu)
+                    # m.bias.grad.data.mul_(nu)
+            # elif m.__class__.__name__ in ['BatchNorm1d', 'BatchNorm2d']:
+            #     m.weight.grad.data.mul_(nu)
+            #     if m.bias is not None:
+            #         m.bias.grad.data.mul_(nu)
 
     def _step(self, closure):
         # FIXME (CW): Modified based on SGD (removed nestrov and dampening in momentum.)
