@@ -201,6 +201,7 @@ class NGDOptimizer(optim.Optimizer):
                 # TODO(bmu): fix low rank
                 if self.low_rank.lower() == 'true':
                     # print("=== low rank ===")
+
                     ###### using low rank structure
                     U, S, V = self.m_UV[m]
                     NGD_inv = self.m_NGD_Kernel[m]
@@ -240,6 +241,7 @@ class NGDOptimizer(optim.Optimizer):
                     n = AX.shape[0]
 
                     NGD_inv = self.m_NGD_Kernel[m]
+
                     grad_prod = einsum('nkm,mk->n', (AX, grad_reshape))
                     v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
                     gv = einsum('nkm,n->mk', (AX, v))
