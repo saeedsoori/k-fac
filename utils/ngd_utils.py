@@ -7,16 +7,16 @@ from torch.nn import Unfold
 class ComputeI:
 
     @classmethod
-    def compute_cov_a(cls, a, module):
-        return cls.__call__(a, module)
+    def compute_cov_a(cls, a, module, super_opt='false'):
+        return cls.__call__(a, module, super_opt)
 
     @classmethod
-    def __call__(cls, a, module):
+    def __call__(cls, a, module, super_opt='false'):
         if isinstance(module, nn.Linear):
-            II, I = cls.linear(a, module)
+            II, I = cls.linear(a, module, super_opt)
             return II, I
         elif isinstance(module, nn.Conv2d):
-            II, I = cls.conv2d(a, module)
+            II, I = cls.conv2d(a, module, super_opt)
             return II, I
         else:
             # FIXME(CW): for extension to other layers.
@@ -24,7 +24,7 @@ class ComputeI:
             return None
 
     @staticmethod
-    def conv2d(input, module):
+    def conv2d(input, module, super_opt='false'):
         f = Unfold(
             kernel_size=module.kernel_size,
             dilation=module.dilation,
@@ -37,7 +37,13 @@ class ComputeI:
         L = I.shape[2]
         M = module.out_channels
         module.param_shapes = [N, K, L, M]
-        if (L*L) * (K + M) < K * M :
+        flag = False
+        if super_opt == 'true':
+            flag = N * (L * L) * (K + M) < K * M * L + N * K * M
+        else:
+            flag = (L * L) * (K + M) < K * M
+
+        if flag == True:
             II = einsum("nkl,qkp->nqlp", (I, I))
             module.optimized = True
             return II, I
@@ -46,7 +52,7 @@ class ComputeI:
             return None, I
 
     @staticmethod
-    def linear(input, module):
+    def linear(input, module, super_opt='false'):
         I = input        
         II =  einsum("ni,li->nl", (I, I))   
         module.optimized = True
@@ -55,28 +61,28 @@ class ComputeI:
 class ComputeG:
 
     @classmethod
-    def compute_cov_g(cls, g, module):
+    def compute_cov_g(cls, g, module, super_opt='false'):
         """
         :param g: gradient
         :param module: the corresponding module
         :return:
         """
-        return cls.__call__(g, module)
+        return cls.__call__(g, module, super_opt)
 
     @classmethod
-    def __call__(cls, g, module):
+    def __call__(cls, g, module, super_opt='false'):
         if isinstance(module, nn.Conv2d):
-            GG, G = cls.conv2d(g, module)
+            GG, G = cls.conv2d(g, module, super_opt)
             return GG, G
         elif isinstance(module, nn.Linear):
-            GG, G = cls.linear(g, module)
+            GG, G = cls.linear(g, module, super_opt)
             return GG, G
         else:
             return None
         
 
     @staticmethod
-    def conv2d(g, module):
+    def conv2d(g, module, super_opt='false'):
         n = g.shape[0]
         g_out_sc = n * g
         grad_output_viewed = g_out_sc.reshape(g_out_sc.shape[0], g_out_sc.shape[1], -1)
@@ -86,7 +92,13 @@ class ComputeG:
         K = module.param_shapes[1]
         L = module.param_shapes[2]
         M = module.param_shapes[3]
-        if (L*L) * (K + M) < K * M :
+        flag = False
+        if super_opt == 'true':
+            flag = N * (L * L) * (K + M) < K * M * L + N * K * M
+        else:
+            flag = (L * L) * (K + M) < K * M
+
+        if flag == True :
             GG = einsum("nml,qmp->nqlp", (G, G))
             module.optimized = True
             return GG, G
@@ -95,7 +107,7 @@ class ComputeG:
              return None, G
 
     @staticmethod
-    def linear(g, module):
+    def linear(g, module, super_opt='false'):
         n = g.shape[0]
         g_out_sc = n * g
         G = g_out_sc
