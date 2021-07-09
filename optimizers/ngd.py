@@ -125,7 +125,7 @@ class NGDOptimizer(optim.Optimizer):
                 ### low-rank approximation of Jacobian
                 if self.low_rank == 'true':
                     # print('=== low rank ===')
-                    V, S, U = svd(AX_.T, compute_uv=True, full_matrices=False)
+                    V, S, U = svd(AX_.T, full_matrices=False)
                     U = U.t()
                     V = V.t()
                     cs = cumsum(S, dim = 0)
@@ -214,18 +214,10 @@ class NGDOptimizer(optim.Optimizer):
                     grad_prod = grad_prod.squeeze()
 
                     bias_update = None
-                    grad_prod_bias = 0
                     if m.bias is not None:
-                        grad_bias = m.bias.grad.data
-                        grad_prod_bias = einsum("nml,m->n", (G, grad_bias))
+                        bias_update = m.bias.grad.data
 
                     v = matmul(NGD_inv, (grad_prod).unsqueeze(1)).squeeze()
-
-                    if m.bias is not None:
-                        gv_bias = einsum("n,nml->m", (v, G))
-                        gv_bias = gv_bias.view_as(grad_bias)
-                        gv_bias = gv_bias / n
-                        bias_update = (grad_bias - gv_bias)/damping
 
                     gv = U.t() @ v.unsqueeze(1)
                     gv = torch.diag(S) @ gv
