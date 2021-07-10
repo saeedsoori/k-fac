@@ -390,7 +390,7 @@ def train(epoch):
             loss.backward()
             # do another forward-backward pass over batch inside step()
             def closure():
-                return inputs, targets, criterion
+                return inputs, targets, criterion, False # is_autoencoder = False
             optimizer.step(closure)
         elif optim_name == 'exact_ngd':
             inputs, targets = inputs.to(args.device), targets.to(args.device)
@@ -845,7 +845,7 @@ def main():
     # print(TRAIN_INFO)
     # save the train info to file:
     fname = "lr_" + str(args.learning_rate) + "_b_" + str(args.batch_size)
-    if optim_name in ['kfac', 'ekfac', 'ngd']:
+    if optim_name in ['kfac', 'skfac', 'ekfac', 'kngd']:
         fname = fname + "_d_" + str(args.damping) + "_m_" + str(args.momentum) 
     elif optim_name == 'adam':
         fname = fname + "_" + str(args.epsilon) 
@@ -853,6 +853,17 @@ def main():
         fname = fname + "_m_" + str(args.momentum) 
     fname = fname + "_wd_" + str(args.weight_decay)
 
+    if optim_name == 'skfac':
+      if args.subsample == 'true':
+        fname = 's' + str(args.num_ss_patches) + '_' + fname
+      else:
+        fname = 'rs_' + fname
+
+    if optim_name == 'kngd':
+      if args.low_rank == 'true':
+        fname = 'low_rank_' + fname
+      if args.super_opt == 'true':
+        fname = 'super_opt_' + fname
 
     fname = fname + str(np.random.rand()) 
     path = "./" + args.dataset + "/" + args.network + "/" + args.optimizer
