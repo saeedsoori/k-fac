@@ -94,6 +94,10 @@ class NGDOptimizer(optim.Optimizer):
             NGD_kernel = (II * GG) / n
             NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
             self.m_NGD_Kernel[m] = NGD_inv
+
+            self.m_I[m] = (None, self.m_I[m][1])
+            self.m_G[m] = (None, self.m_G[m][1])
+            torch.cuda.empty_cache()
         elif classname == 'conv2d':
             # SAEED: @TODO: we don't need II and GG after computations, clear the memory
             if m.optimized == True:
@@ -102,7 +106,7 @@ class NGDOptimizer(optim.Optimizer):
                 GG = self.m_G[m][0]
                 n = II.shape[0]
 
-                NGD_kernel = (einsum('nqlp->nq', II * GG)) / n
+                NGD_kernel = II * GG / n
                 NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
                 self.m_NGD_Kernel[m] = NGD_inv
 
@@ -183,11 +187,11 @@ class NGDOptimizer(optim.Optimizer):
                 n = I.shape[0]
                 NGD_inv = self.m_NGD_Kernel[m]
 
-                x1 = einsum("nkl,mk->nml", (I, grad_reshape))
-                grad_prod = einsum("nml,nml->n", (x1, G)) 
+                x1 = einsum("nk,mk->nm", (I, grad_reshape))
+                grad_prod = einsum("nm,nm->n", (x1, G)) 
                 v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
-                gv = einsum("n,nml->nml", (v, G))
-                gv = einsum("nml,nkl->mk", (gv, I))
+                gv = einsum("n,nm->nm", (v, G))
+                gv = einsum("nm,nk->mk", (gv, I))
                 gv = gv.view_as(grad)
                 gv = gv / n
 

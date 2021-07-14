@@ -37,14 +37,16 @@ class ComputeI:
         L = I.shape[2]
         M = module.out_channels
         module.param_shapes = [N, K, L, M]
-        flag = False
-        if super_opt == 'true':
-            flag = N * (L * L) * (K + M) < K * M * L + N * K * M
-        else:
-            flag = (L * L) * (K + M) < K * M
+        flag = True
+        # if super_opt == 'true':
+        #     flag = N * (L * L) * (K + M) > K * M * L + N * K * M
+        #     # flag = (N * N * K * M + N * K * M > N * N * K + N * N * M)
+        # else:
+        #     flag = (L * L) * (K + M) < K * M
 
         if flag == True:
-            II = einsum("nkl,qkp->nqlp", (I, I))
+            I = einsum("nkl->nk", I)
+            II = einsum("nk,qk->nq", (I, I))
             module.optimized = True
             return II, I
         else:
@@ -92,14 +94,16 @@ class ComputeG:
         K = module.param_shapes[1]
         L = module.param_shapes[2]
         M = module.param_shapes[3]
-        flag = False
-        if super_opt == 'true':
-            flag = N * (L * L) * (K + M) < K * M * L + N * K * M
-        else:
-            flag = (L * L) * (K + M) < K * M
+        flag = True
+        # if super_opt == 'true':
+        #     flag = N * (L * L) * (K + M) > K * M * L + N * K * M
+        #     # flag = (N * N * K * M + N * K * M > N * N * K + N * N * M)
+        # else:
+        #     flag = (L * L) * (K + M) < K * M
 
         if flag == True :
-            GG = einsum("nml,qmp->nqlp", (G, G))
+            G = einsum("nkl->nk", G)
+            GG = einsum("nk,qk->nq", (G, G))
             module.optimized = True
             return GG, G
         else:
