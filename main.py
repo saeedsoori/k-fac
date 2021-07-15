@@ -1,7 +1,7 @@
 '''Train CIFAR10/CIFAR100 with PyTorch.'''
 import argparse
 import os
-from optimizers import (KFACOptimizer, EKFACOptimizer, KBFGSOptimizer, KBFGSLOptimizer, KBFGSL2LOOPOptimizer, KBFGSLMEOptimizer, NGDOptimizer)
+from optimizers import (KFACOptimizer, SKFACOptimizer, EKFACOptimizer, KBFGSOptimizer, KBFGSLOptimizer, KBFGSL2LOOPOptimizer, KBFGSLMEOptimizer, NGDOptimizer)
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -26,6 +26,12 @@ from torch.linalg import inv
 import numpy as np
 # for REPRODUCIBILITY
 # torch.manual_seed(0)
+# torch.use_deterministic_algorithms(True)
+# os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+# np.random.seed(0)
+# import random
+# random.seed(0)
+
 
 # fetch args
 parser = argparse.ArgumentParser()
@@ -85,6 +91,11 @@ parser.add_argument('--num_s_y_pairs', default=1000, type=int)
 
 parser.add_argument('--prefix', default=None, type=str)
 parser.add_argument('--debug_mem', default='false', type=str)
+
+# for SKFAC optimizer
+parser.add_argument('--subsample', default='false', type=str)
+parser.add_argument('--num_ss_patches', default=0, type=int)
+
 args = parser.parse_args()
 
 # init model
@@ -156,6 +167,19 @@ elif optim_name == 'kfac':
     if args.save_inv == 'true':
       os.mkdir('kfac')
 
+elif optim_name == 'skfac':
+    optimizer = SKFACOptimizer(net,
+                               lr=args.learning_rate,
+                               momentum=args.momentum,
+                               stat_decay=args.stat_decay,
+                               damping=args.damping,
+                               kl_clip=args.kl_clip,
+                               weight_decay=args.weight_decay,
+                               TCov=args.TCov,
+                               TInv=args.TInv,
+                               subsample=args.subsample,
+                               num_ss_patches=args.num_ss_patches)
+
 elif optim_name == 'ekfac':
     optimizer = EKFACOptimizer(net,
                                lr=args.learning_rate,
@@ -201,7 +225,8 @@ elif optim_name == 'kngd':
                               weight_decay=args.weight_decay,
                               freq=args.freq,
                               gamma=args.gamma,
-                              low_rank=args.low_rank)
+                              low_rank=args.low_rank,
+                              super_opt=args.super_opt)
 
 elif optim_name == 'kbfgs':
     print('K-BFGS optimizer selected.')
@@ -321,6 +346,7 @@ def store_io_(Flag=True):
 
 
 def train(epoch):
+    torch.set_printoptions(precision=16)
     print('\nEpoch: %d' % epoch)
     net.train()
     train_loss = 0
@@ -340,12 +366,12 @@ def train(epoch):
     prog_bar = tqdm(enumerate(trainloader), total=len(trainloader), desc=desc, leave=True)
     for batch_idx, (inputs, targets) in prog_bar:
 
-        if optim_name in ['kfac', 'ekfac', 'sgd', 'adam'] :
+        if optim_name in ['kfac', 'skfac', 'ekfac', 'sgd', 'adam']:
             inputs, targets = inputs.to(args.device), targets.to(args.device)
             optimizer.zero_grad()
             outputs = net(inputs)
             loss = criterion(outputs, targets)
-            if optim_name in ['kfac', 'ekfac'] and optimizer.steps % optimizer.TCov == 0:
+            if optim_name in ['kfac', 'skfac', 'ekfac'] and optimizer.steps % optimizer.TCov == 0:
                 # compute true fisher
                 optimizer.acc_stats = True
                 with torch.no_grad():
@@ -364,7 +390,7 @@ def train(epoch):
             loss.backward()
             # do another forward-backward pass over batch inside step()
             def closure():
-                return inputs, targets, criterion
+                return inputs, targets, criterion, False # is_autoencoder = False
             optimizer.step(closure)
         elif optim_name == 'exact_ngd':
             inputs, targets = inputs.to(args.device), targets.to(args.device)
@@ -495,7 +521,7 @@ def train(epoch):
                     # sampled_y = torch.multinomial(torch.nn.functional.softmax(outputs, dim=1),1).squeeze().to(args.device)
                 all_modules = net.modules()
 
-                for m in all_modules:
+                for m in net.modules():
                     if hasattr(m, "NGD_inv"):                    
                         grad = m.weight.grad
                         if isinstance(m, nn.Linear):
@@ -594,23 +620,24 @@ def train(epoch):
 
             ##### do kl clip
             lr = lr_scheduler.get_last_lr()[0]
-            vg_sum = 0
-            vg_sum += (grad_new * grad_org ).sum()
-            vg_sum = vg_sum * (lr ** 2)
-            nu = min(1.0, math.sqrt(args.kl_clip / vg_sum))
-            for name, param in net.named_parameters():
-                param.grad.mul_(nu)
+            # vg_sum = 0
+            # vg_sum += (grad_new * grad_org ).sum()
+            # vg_sum = vg_sum * (lr ** 2)
+            # nu = min(1.0, math.sqrt(args.kl_clip / vg_sum))
+            # for name, param in net.named_parameters():
+            #     param.grad.mul_(nu)
 
             # optimizer.step()
             # manual optimizing:
             with torch.no_grad():
                 for name, param in net.named_parameters():
                     d_p = param.grad.data
+                    # print('=== step ===')
 
                     # apply momentum
-                    if args.momentum != 0:
-                        buf[name].mul_(args.momentum).add_(d_p)
-                        d_p.copy_(buf[name])
+                    # if args.momentum != 0:
+                    #     buf[name].mul_(args.momentum).add_(d_p)
+                    #     d_p.copy_(buf[name])
 
                     # apply weight decay
                     if args.weight_decay != 0:
@@ -618,6 +645,8 @@ def train(epoch):
 
                     lr = lr_scheduler.get_last_lr()[0]
                     param.data.add_(-lr, d_p)
+                    # print('d_p:', d_p.shape)
+                    # print(d_p)
 
 
 
@@ -778,7 +807,7 @@ def optimal_JJT_v2(outputs, targets, batch_size, damping=1.0, alpha=0.95, low_ra
             update_list[name] = param.fisher_block
         else:
             update_list[name] = param.grad.data
-        
+
     return update_list, loss
 
 def main():
@@ -816,7 +845,7 @@ def main():
     # print(TRAIN_INFO)
     # save the train info to file:
     fname = "lr_" + str(args.learning_rate) + "_b_" + str(args.batch_size)
-    if optim_name in ['kfac', 'ekfac', 'ngd']:
+    if optim_name in ['kfac', 'skfac', 'ekfac', 'kngd']:
         fname = fname + "_d_" + str(args.damping) + "_m_" + str(args.momentum) 
     elif optim_name == 'adam':
         fname = fname + "_" + str(args.epsilon) 
@@ -824,6 +853,17 @@ def main():
         fname = fname + "_m_" + str(args.momentum) 
     fname = fname + "_wd_" + str(args.weight_decay)
 
+    if optim_name == 'skfac':
+      if args.subsample == 'true':
+        fname = 's' + str(args.num_ss_patches) + '_' + fname
+      else:
+        fname = 'rs_' + fname
+
+    if optim_name == 'kngd':
+      if args.low_rank == 'true':
+        fname = 'low_rank_' + fname
+      if args.super_opt == 'true':
+        fname = 'super_opt_' + fname
 
     fname = fname + str(np.random.rand()) 
     path = "./" + args.dataset + "/" + args.network + "/" + args.optimizer

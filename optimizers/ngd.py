@@ -17,7 +17,8 @@ class NGDOptimizer(optim.Optimizer):
                  weight_decay=0.003,
                  freq=100,
                  gamma=0.9,
-                 low_rank='true'):
+                 low_rank='true',
+                 super_opt='false'):
         if lr < 0.0:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if momentum < 0.0:
@@ -42,23 +43,26 @@ class NGDOptimizer(optim.Optimizer):
         self.m_G = {}
         self.m_UV = {}
         self.m_NGD_Kernel = {}
+        self.m_bias_Kernel = {}
+        self.m_AX = {}
 
         self.kl_clip = kl_clip
         self.freq = freq
         self.gamma = gamma
         self.low_rank = low_rank
+        self.super_opt = super_opt
         self.damping = damping
 
     def _save_input(self, module, input):
         # storing the optimized input in forward pass
         if torch.is_grad_enabled() and self.steps % self.freq == 0:
-            II, I = self.IHandler(input[0].data, module)
+            II, I = self.IHandler(input[0].data, module, self.super_opt)
             self.m_I[module] = II, I
 
     def _save_grad_output(self, module, grad_input, grad_output):
         # storing the optimized gradients in backward pass
         if self.acc_stats and self.steps % self.freq == 0:
-            GG, G = self.GHandler(grad_output[0].data, module)
+            GG, G = self.GHandler(grad_output[0].data, module, self.super_opt)
             self.m_G[module] = GG, G
 
     def _prepare_model(self):
@@ -83,18 +87,26 @@ class NGDOptimizer(optim.Optimizer):
             n = II.shape[0]
 
             ### bias kernel is GG (II = all ones)
-            NGD_kernel = (II * GG + GG) / n 
+            bias_kernel = GG / n
+            bias_inv = inv(bias_kernel + self.damping * eye(n).to(GG.device))
+            self.m_bias_Kernel[m] = bias_inv
+
+            NGD_kernel = (II * GG) / n
             NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
             self.m_NGD_Kernel[m] = NGD_inv
+
+            self.m_I[m] = (None, self.m_I[m][1])
+            self.m_G[m] = (None, self.m_G[m][1])
+            torch.cuda.empty_cache()
         elif classname == 'conv2d':
             # SAEED: @TODO: we don't need II and GG after computations, clear the memory
             if m.optimized == True:
+                # print('=== optimized ===')
                 II = self.m_I[m][0]
                 GG = self.m_G[m][0]
                 n = II.shape[0]
-                ### bias kernel:
-                bias_kernel = einsum("nqlp->nq", GG)
-                NGD_kernel = (einsum('nqlp->nq', II * GG) + bias_kernel)/ n
+
+                NGD_kernel = II * GG / n
                 NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
                 self.m_NGD_Kernel[m] = NGD_inv
 
@@ -110,14 +122,14 @@ class NGDOptimizer(optim.Optimizer):
                 AX_ = AX.reshape(n , -1)
                 out = matmul(AX_, AX_.t()) 
 
-                ### bias kernel:
-                bias_kernel = einsum("nml,qml->nq", (G, G))
-                NGD_kernel = (out + bias_kernel)/ n
+                NGD_kernel = out / n
                 NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(I.device))
                 self.m_NGD_Kernel[m] = NGD_inv
+                self.m_AX[m] = AX
                 ### low-rank approximation of Jacobian
                 if self.low_rank == 'true':
-                    V, S, U = svd(AX_.T, compute_uv=True, full_matrices=False)
+                    # print('=== low rank ===')
+                    V, S, U = svd(AX_.T, full_matrices=False)
                     U = U.t()
                     V = V.t()
                     cs = cumsum(S, dim = 0)
@@ -130,7 +142,7 @@ class NGDOptimizer(optim.Optimizer):
                 del I
                 self.m_I[m] = None, self.m_I[m][1]
                 del AX_
-                del AX
+                # del AX
                 torch.cuda.empty_cache()
 
     def _get_natural_grad(self, m, damping):
@@ -146,108 +158,134 @@ class NGDOptimizer(optim.Optimizer):
             grad_prod = einsum("ni,oi->no", (I, grad))
             grad_prod = einsum("no,no->n", (grad_prod, G))
 
+            v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+
+            gv = einsum("n,no->no", (v, G))
+            gv = einsum("no,ni->oi", (gv, I))
+            gv = gv / n
+
             bias_update = None
             if m.bias is not None:
                 grad_bias = m.bias.grad.data
-                grad_prod_bias = einsum("o,no->n", (grad_bias, G))
-            
-            v = matmul(NGD_inv, (grad_prod_bias + grad_prod).unsqueeze(1)).squeeze()
-            gv = einsum("n,no->no", (v, G))
-            if m.bias is not None:
-                gv_bias = einsum("no->o", gv)
-                gv_bias = gv_bias / n
-                bias_update = (grad_bias - gv_bias)/damping
-            gv = einsum("no,ni->oi", (gv, I))
-            gv = gv / n
+                if self.steps % self.freq == 0:
+                    grad_prod_bias = einsum("o,no->n", (grad_bias, G))
+                    v = matmul(self.m_bias_Kernel[m], grad_prod_bias.unsqueeze(1)).squeeze()
+                    gv_bias = einsum('n,no->o', (v, G))
+                    gv_bias = gv_bias / n
+                    bias_update = (grad_bias - gv_bias) / damping
+                else:
+                    bias_update = grad_bias
+
             updates = (grad - gv)/damping, bias_update
 
         elif classname == 'conv2d':
             grad_reshape = grad.reshape(grad.shape[0], -1)
             if m.optimized == True:
+                # print('=== optimized ===')
                 I = self.m_I[m][1]
                 G = self.m_G[m][1]
                 n = I.shape[0]
                 NGD_inv = self.m_NGD_Kernel[m]
 
-                x1 = einsum("nkl,mk->nml", (I, grad_reshape))
-                grad_prod = einsum("nml,nml->n", (x1, G)) 
-
-                bias_update = None
-                grad_prod_bias = 0
-                if m.bias is not None:
-                    grad_bias = m.bias.grad.data
-                    grad_prod_bias = einsum("nml,m->n", (G, grad_bias))
-
-                v = matmul(NGD_inv, (grad_prod + grad_prod_bias).unsqueeze(1)).squeeze()
-                gv = einsum("n,nml->nml", (v, G))
-                if m.bias is not None:
-                    gv_bias = einsum("nml->m", gv)
-                    gv_bias = gv_bias.view_as(grad_bias)
-                    gv_bias = gv_bias / n
-                    bias_update = (grad_bias - gv_bias)/damping
-
-                gv = einsum("nml,nkl->mk", (gv, I))
+                x1 = einsum("nk,mk->nm", (I, grad_reshape))
+                grad_prod = einsum("nm,nm->n", (x1, G)) 
+                v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+                gv = einsum("n,nm->nm", (v, G))
+                gv = einsum("nm,nk->mk", (gv, I))
                 gv = gv.view_as(grad)
                 gv = gv / n
+
+                bias_update = None
+                if m.bias is not None:
+                    bias_update = m.bias.grad.data
                 
                 updates = (grad - gv)/damping, bias_update
 
             else:
-                ###### using low rank structure
-                U, S, V = self.m_UV[m]
-                NGD_inv = self.m_NGD_Kernel[m]
-                G = self.m_G[m][1]
-                n = NGD_inv.shape[0]
+                # TODO(bmu): fix low rank
+                if self.low_rank.lower() == 'true':
+                    # print("=== low rank ===")
 
-                grad_prod = V @ grad_reshape.t().reshape(-1, 1)
-                grad_prod = torch.diag(S) @ grad_prod
-                grad_prod = U @ grad_prod
-                grad_prod = grad_prod.squeeze()
+                    ###### using low rank structure
+                    U, S, V = self.m_UV[m]
+                    NGD_inv = self.m_NGD_Kernel[m]
+                    G = self.m_G[m][1]
+                    n = NGD_inv.shape[0]
 
-                bias_update = None
-                grad_prod_bias = 0
-                if m.bias is not None:
-                    grad_bias = m.bias.grad.data
-                    grad_prod_bias = einsum("nml,m->n", (G, grad_bias))
+                    grad_prod = V @ grad_reshape.t().reshape(-1, 1)
+                    grad_prod = torch.diag(S) @ grad_prod
+                    grad_prod = U @ grad_prod
+                    grad_prod = grad_prod.squeeze()
 
-                v = matmul(NGD_inv, (grad_prod + grad_prod_bias).unsqueeze(1)).squeeze()
-                
-                if m.bias is not None:
-                    gv_bias = einsum("n,nml->m", (v, G))
-                    gv_bias = gv_bias.view_as(grad_bias)
-                    gv_bias = gv_bias / n
-                    bias_update = (grad_bias - gv_bias)/damping
+                    bias_update = None
+                    if m.bias is not None:
+                        bias_update = m.bias.grad.data
 
-                gv = U.t() @ v.unsqueeze(1)
-                gv = torch.diag(S) @ gv
-                gv = V.t() @ gv
+                    v = matmul(NGD_inv, (grad_prod).unsqueeze(1)).squeeze()
 
-                gv = gv.reshape(grad_reshape.shape[1], grad_reshape.shape[0]).t()
-                gv = gv.view_as(grad)
-                gv = gv / n
+                    gv = U.t() @ v.unsqueeze(1)
+                    gv = torch.diag(S) @ gv
+                    gv = V.t() @ gv
 
-                updates = (grad - gv)/damping, bias_update
+                    gv = gv.reshape(grad_reshape.shape[1], grad_reshape.shape[0]).t()
+                    gv = gv.view_as(grad)
+                    gv = gv / n
+
+                    updates = (grad - gv)/damping, bias_update
+                else:
+                    AX = self.m_AX[m]
+                    n = AX.shape[0]
+
+                    NGD_inv = self.m_NGD_Kernel[m]
+
+                    grad_prod = einsum('nkm,mk->n', (AX, grad_reshape))
+                    v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+                    gv = einsum('nkm,n->mk', (AX, v))
+                    gv = gv.view_as(grad)
+                    gv = gv / n
+
+                    bias_update = None
+                    if m.bias is not None:
+                        bias_update = m.bias.grad.data
+
+                    updates = (grad - gv) / damping, bias_update
+
         return updates
 
 
     def _kl_clip_and_update_grad(self, updates, lr):
         # do kl clip
 
-        vg_sum = 0
-        for m in self.modules:
-            v = updates[m]
-            vg_sum += (v[0] * m.weight.grad.data * lr ** 2).sum().item()
-            if m.bias is not None:
-                vg_sum += (v[1] * m.bias.grad.data * lr ** 2).sum().item()
-        nu = min(1.0, math.sqrt(self.kl_clip / vg_sum))
+        # vg_sum = 0
 
-        for m in self.modules:
-            v = updates[m]
-            m.weight.grad.data.copy_(v[0])
-            m.weight.grad.data.mul_(nu)
-            if m.bias is not None:
-                m.bias.grad.data.copy_(v[1])
-                m.bias.grad.data.mul_(nu)
+        # for m in self.model.modules():
+        #     classname = m.__class__.__name__
+        #     if classname in self.known_modules:
+        #         v = updates[m]
+        #         vg_sum += (v[0] * m.weight.grad.data).sum().item()
+        #         if m.bias is not None:
+        #             vg_sum += (v[1] * m.bias.grad.data).sum().item()
+        #     elif classname in ['BatchNorm1d', 'BatchNorm2d']:
+        #         vg_sum += (m.weight.grad.data * m.weight.grad.data).sum().item()
+        #         if m.bias is not None:
+        #             vg_sum += (m.bias.grad.data * m.bias.grad.data).sum().item()
+
+        # vg_sum = vg_sum * (lr ** 2)
+
+        # nu = min(1.0, math.sqrt(self.kl_clip / vg_sum))
+
+        for m in self.model.modules():
+            if m.__class__.__name__ in ['Linear', 'Conv2d']:
+                v = updates[m]
+                m.weight.grad.data.copy_(v[0])
+                # m.weight.grad.data.mul_(nu)
+                if v[1] is not None:
+                    m.bias.grad.data.copy_(v[1])
+                    # m.bias.grad.data.mul_(nu)
+            # elif m.__class__.__name__ in ['BatchNorm1d', 'BatchNorm2d']:
+            #     m.weight.grad.data.mul_(nu)
+            #     if m.bias is not None:
+            #         m.bias.grad.data.mul_(nu)
 
     def _step(self, closure):
         # FIXME (CW): Modified based on SGD (removed nestrov and dampening in momentum.)
@@ -256,25 +294,28 @@ class NGDOptimizer(optim.Optimizer):
             weight_decay = group['weight_decay']
             momentum = group['momentum']
             for p in group['params']:
+                # print('=== step ===')
                 if p.grad is None:
                     continue
                 d_p = p.grad.data
                 
-                if momentum != 0:
-                    param_state = self.state[p]
-                    if 'momentum_buffer' not in param_state:
-                        buf = param_state['momentum_buffer'] = torch.zeros_like(p.data)
-                        buf.mul_(momentum).add_(d_p)
-                    else:
-                        buf = param_state['momentum_buffer']
-                        buf.mul_(momentum).add_(1, d_p)
-                    d_p = buf
+                # if momentum != 0:
+                #     param_state = self.state[p]
+                #     if 'momentum_buffer' not in param_state:
+                #         buf = param_state['momentum_buffer'] = torch.zeros_like(p.data)
+                #         buf.mul_(momentum).add_(d_p)
+                #     else:
+                #         buf = param_state['momentum_buffer']
+                #         buf.mul_(momentum).add_(1, d_p)
+                #     d_p.copy_(buf)
 
                 # if weight_decay != 0 and self.steps >= 10 * self.freq:
                 if weight_decay != 0:
                     d_p.add_(weight_decay, p.data)
 
                 p.data.add_(-group['lr'], d_p)
+                # print('d_p:', d_p.shape)
+                # print(d_p)
 
     def step(self, closure=None):
         group = self.param_groups[0]
