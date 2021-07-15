@@ -18,7 +18,8 @@ class NGDOptimizer(optim.Optimizer):
                  freq=100,
                  gamma=0.9,
                  low_rank='true',
-                 super_opt='false'):
+                 super_opt='false',
+                 reduce_sum='false'):
         if lr < 0.0:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if momentum < 0.0:
@@ -51,18 +52,19 @@ class NGDOptimizer(optim.Optimizer):
         self.gamma = gamma
         self.low_rank = low_rank
         self.super_opt = super_opt
+        self.reduce_sum = reduce_sum
         self.damping = damping
 
     def _save_input(self, module, input):
         # storing the optimized input in forward pass
         if torch.is_grad_enabled() and self.steps % self.freq == 0:
-            II, I = self.IHandler(input[0].data, module, self.super_opt)
+            II, I = self.IHandler(input[0].data, module, self.super_opt, self.reduce_sum)
             self.m_I[module] = II, I
 
     def _save_grad_output(self, module, grad_input, grad_output):
         # storing the optimized gradients in backward pass
         if self.acc_stats and self.steps % self.freq == 0:
-            GG, G = self.GHandler(grad_output[0].data, module, self.super_opt)
+            GG, G = self.GHandler(grad_output[0].data, module, self.super_opt, self.reduce_sum)
             self.m_G[module] = GG, G
 
     def _prepare_model(self):
@@ -106,7 +108,11 @@ class NGDOptimizer(optim.Optimizer):
                 GG = self.m_G[m][0]
                 n = II.shape[0]
 
-                NGD_kernel = II * GG / n
+                NGD_kernel = None
+                if self.reduce_sum == 'true':
+                    NGD_kernel = II * GG / n
+                else:
+                    NGD_kernel = (einsum('nqlp->nq', II * GG)) / n
                 NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
                 self.m_NGD_Kernel[m] = NGD_inv
 
@@ -187,11 +193,18 @@ class NGDOptimizer(optim.Optimizer):
                 n = I.shape[0]
                 NGD_inv = self.m_NGD_Kernel[m]
 
-                x1 = einsum("nk,mk->nm", (I, grad_reshape))
-                grad_prod = einsum("nm,nm->n", (x1, G)) 
-                v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
-                gv = einsum("n,nm->nm", (v, G))
-                gv = einsum("nm,nk->mk", (gv, I))
+                if self.reduce_sum == 'true':
+                    x1 = einsum("nk,mk->nm", (I, grad_reshape))
+                    grad_prod = einsum("nm,nm->n", (x1, G))
+                    v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+                    gv = einsum("n,nm->nm", (v, G))
+                    gv = einsum("nm,nk->mk", (gv, I))
+                else:
+                    x1 = einsum("nkl,mk->nml", (I, grad_reshape))
+                    grad_prod = einsum("nml,nml->n", (x1, G))
+                    v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+                    gv = einsum("n,nml->nml", (v, G))
+                    gv = einsum("nml,nkl->mk", (gv, I))
                 gv = gv.view_as(grad)
                 gv = gv / n
 
