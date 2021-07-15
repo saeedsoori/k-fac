@@ -83,6 +83,7 @@ parser.add_argument('--memory_efficient', default='false', type=str)
 parser.add_argument('--trial', default='true', type=str)
 parser.add_argument('--super_opt', default='false', type=str)
 parser.add_argument('--reduce_sum', default='false', type=str)
+parser.add_argument('--partial_backprop', default='false', type=str)
 
 # for adam optimizer
 parser.add_argument('--epsilon', default=1e-8, type=float)
@@ -453,6 +454,10 @@ def train(epoch):
                 loss_sample.backward(retain_graph=True)
                 optimizer.acc_stats = False
                 optimizer.zero_grad()  # clear the gradient for computing true-fisher.
+                if args.partial_backprop == 'true':
+                  idx = (sampled_y == targets) == False
+                  loss = criterion(outputs[idx,:], targets[idx])
+                  # print('extra:', idx.sum().item())
             loss.backward()
             optimizer.step()
 
