@@ -45,7 +45,6 @@ class NGDOptimizer(optim.Optimizer):
         self.m_UV = {}
         self.m_NGD_Kernel = {}
         self.m_bias_Kernel = {}
-        self.m_AX = {}
 
         self.kl_clip = kl_clip
         self.freq = freq
@@ -125,13 +124,16 @@ class NGDOptimizer(optim.Optimizer):
                 G = self.m_G[m][1]
                 n = I.shape[0]
                 AX = einsum("nkl,nml->nkm", (I, G))
+
+                del I
+                del G
+
                 AX_ = AX.reshape(n , -1)
-                out = matmul(AX_, AX_.t()) 
+                out = matmul(AX_, AX_.t())
+
+                del AX
 
                 NGD_kernel = out / n
-                NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(I.device))
-                self.m_NGD_Kernel[m] = NGD_inv
-                self.m_AX[m] = AX
                 ### low-rank approximation of Jacobian
                 if self.low_rank == 'true':
                     # print('=== low rank ===')
@@ -145,10 +147,15 @@ class NGDOptimizer(optim.Optimizer):
                     S = S[0:index]
                     V = V[0:index, :]
                     self.m_UV[m] = U, S, V
-                del I
-                self.m_I[m] = None, self.m_I[m][1]
+
                 del AX_
-                # del AX
+
+                NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(NGD_kernel.device))
+                self.m_NGD_Kernel[m] = NGD_inv
+
+                del NGD_inv
+                self.m_I[m] = None, self.m_I[m][1]
+                self.m_G[m] = None, self.m_G[m][1]
                 torch.cuda.empty_cache()
 
     def _get_natural_grad(self, m, damping):
@@ -246,7 +253,13 @@ class NGDOptimizer(optim.Optimizer):
 
                     updates = (grad - gv)/damping, bias_update
                 else:
-                    AX = self.m_AX[m]
+                    I = self.m_I[m][1]
+                    G = self.m_G[m][1]
+                    AX = einsum('nkl,nml->nkm', (I, G))
+
+                    del I
+                    del G
+
                     n = AX.shape[0]
 
                     NGD_inv = self.m_NGD_Kernel[m]
@@ -262,6 +275,10 @@ class NGDOptimizer(optim.Optimizer):
                         bias_update = m.bias.grad.data
 
                     updates = (grad - gv) / damping, bias_update
+
+                    del AX
+                    del NGD_inv
+                    torch.cuda.empty_cache()
 
         return updates
 
