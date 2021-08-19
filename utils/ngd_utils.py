@@ -39,7 +39,7 @@ class ComputeI:
         module.param_shapes = [N, K, L, M]
 
         if reduce_sum == 'true':
-            I = einsum("nkl->nk", I)
+            I = einsum("nkl->nk", I) / L
             II = einsum("nk,qk->nq", (I, I))
             module.optimized = True
             return II, I
@@ -101,7 +101,7 @@ class ComputeG:
         M = module.param_shapes[3]
 
         if reduce_sum == 'true':
-            G = einsum("nkl->nk", G)
+            G = einsum("nkl->nk", G) / L
             GG = einsum("nk,qk->nq", (G, G))
             module.optimized = True
             return GG, G
