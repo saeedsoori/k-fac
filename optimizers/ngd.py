@@ -19,7 +19,8 @@ class NGDOptimizer(optim.Optimizer):
                  gamma=0.9,
                  low_rank='true',
                  super_opt='false',
-                 reduce_sum='false'):
+                 reduce_sum='false',
+                 diag='false'):
         if lr < 0.0:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if momentum < 0.0:
@@ -52,18 +53,19 @@ class NGDOptimizer(optim.Optimizer):
         self.low_rank = low_rank
         self.super_opt = super_opt
         self.reduce_sum = reduce_sum
+        self.diag = diag
         self.damping = damping
 
     def _save_input(self, module, input):
         # storing the optimized input in forward pass
         if torch.is_grad_enabled() and self.steps % self.freq == 0:
-            II, I = self.IHandler(input[0].data, module, self.super_opt, self.reduce_sum)
+            II, I = self.IHandler(input[0].data, module, self.super_opt, self.reduce_sum, self.diag)
             self.m_I[module] = II, I
 
     def _save_grad_output(self, module, grad_input, grad_output):
         # storing the optimized gradients in backward pass
         if self.acc_stats and self.steps % self.freq == 0:
-            GG, G = self.GHandler(grad_output[0].data, module, self.super_opt, self.reduce_sum)
+            GG, G = self.GHandler(grad_output[0].data, module, self.super_opt, self.reduce_sum, self.diag)
             self.m_G[module] = GG, G
 
     def _prepare_model(self):
@@ -93,10 +95,8 @@ class NGDOptimizer(optim.Optimizer):
             self.m_bias_Kernel[m] = bias_inv
 
             NGD_kernel = (II * GG) / n
-            # NGD_kernel = (II.diag() * GG.diag() / n)
 
             NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
-            # NGD_inv = torch.reciprocal(NGD_kernel + self.damping)
 
             self.m_NGD_Kernel[m] = NGD_inv
 
@@ -113,15 +113,16 @@ class NGDOptimizer(optim.Optimizer):
 
                 NGD_kernel = None
                 if self.reduce_sum == 'true':
-                    # NGD_kernel = II * GG / n
-                    NGD_kernel = (II.diag() * GG.diag() / n)
+                    if self.diag == 'true':
+                        NGD_kernel = (II.diag() * GG.diag() / n)
+                        NGD_inv = torch.reciprocal(NGD_kernel + self.damping)
+                    else:
+                        NGD_kernel = II * GG / n
+                        NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
                 else:
                     NGD_kernel = (einsum('nqlp->nq', II * GG)) / n
-                # NGD_kernel = torch.diag(NGD_kernel.diag()).to(II.device)
-                # print(NGD_kernel)
+                    NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
 
-                # NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
-                NGD_inv = torch.reciprocal(NGD_kernel + self.damping)
                 self.m_NGD_Kernel[m] = NGD_inv
 
                 self.m_I[m] = (None, self.m_I[m][1])
@@ -216,8 +217,12 @@ class NGDOptimizer(optim.Optimizer):
                 if self.reduce_sum == 'true':
                     x1 = einsum("nk,mk->nm", (I, grad_reshape))
                     grad_prod = einsum("nm,nm->n", (x1, G))
-                    # v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
-                    v = NGD_inv * grad_prod
+
+                    if self.diag == 'true':
+                        v = NGD_inv * grad_prod
+                    else:
+                        v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+
                     gv = einsum("n,nm->nm", (v, G))
                     gv = einsum("nm,nk->mk", (gv, I))
                 else:
