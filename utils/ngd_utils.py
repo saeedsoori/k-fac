@@ -7,16 +7,16 @@ from torch.nn import Unfold
 class ComputeI:
 
     @classmethod
-    def compute_cov_a(cls, a, module, super_opt='false', reduce_sum='false'):
-        return cls.__call__(a, module, super_opt, reduce_sum)
+    def compute_cov_a(cls, a, module, super_opt='false', reduce_sum='false', diag='false'):
+        return cls.__call__(a, module, super_opt, reduce_sum, diag)
 
     @classmethod
-    def __call__(cls, a, module, super_opt='false', reduce_sum='false'):
+    def __call__(cls, a, module, super_opt='false', reduce_sum='false', diag='false'):
         if isinstance(module, nn.Linear):
-            II, I = cls.linear(a, module, super_opt, reduce_sum)
+            II, I = cls.linear(a, module, super_opt, reduce_sum, diag)
             return II, I
         elif isinstance(module, nn.Conv2d):
-            II, I = cls.conv2d(a, module, super_opt, reduce_sum)
+            II, I = cls.conv2d(a, module, super_opt, reduce_sum, diag)
             return II, I
         else:
             # FIXME(CW): for extension to other layers.
@@ -24,7 +24,7 @@ class ComputeI:
             return None
 
     @staticmethod
-    def conv2d(input, module, super_opt='false', reduce_sum='false'):
+    def conv2d(input, module, super_opt='false', reduce_sum='false', diag='false'):
         f = Unfold(
             kernel_size=module.kernel_size,
             dilation=module.dilation,
@@ -40,7 +40,11 @@ class ComputeI:
 
         if reduce_sum == 'true':
             I = einsum("nkl->nk", I)
-            II = einsum("nk,qk->nq", (I, I))
+            if diag == 'true':
+                I /= L
+                II = torch.sum(I * I, dim=1)
+            else:
+                II = einsum("nk,qk->nq", (I, I))
             module.optimized = True
             return II, I
 
@@ -59,7 +63,7 @@ class ComputeI:
             return None, I
 
     @staticmethod
-    def linear(input, module, super_opt='false', reduce_sum='false'):
+    def linear(input, module, super_opt='false', reduce_sum='false', diag='false'):
         I = input        
         II =  einsum("ni,li->nl", (I, I))   
         module.optimized = True
@@ -68,28 +72,28 @@ class ComputeI:
 class ComputeG:
 
     @classmethod
-    def compute_cov_g(cls, g, module, super_opt='false', reduce_sum='false'):
+    def compute_cov_g(cls, g, module, super_opt='false', reduce_sum='false', diag='false'):
         """
         :param g: gradient
         :param module: the corresponding module
         :return:
         """
-        return cls.__call__(g, module, super_opt, reduce_sum)
+        return cls.__call__(g, module, super_opt, reduce_sum, diag)
 
     @classmethod
-    def __call__(cls, g, module, super_opt='false', reduce_sum='false'):
+    def __call__(cls, g, module, super_opt='false', reduce_sum='false', diag='false'):
         if isinstance(module, nn.Conv2d):
-            GG, G = cls.conv2d(g, module, super_opt, reduce_sum)
+            GG, G = cls.conv2d(g, module, super_opt, reduce_sum, diag)
             return GG, G
         elif isinstance(module, nn.Linear):
-            GG, G = cls.linear(g, module, super_opt, reduce_sum)
+            GG, G = cls.linear(g, module, super_opt, reduce_sum, diag)
             return GG, G
         else:
             return None
         
 
     @staticmethod
-    def conv2d(g, module, super_opt='false', reduce_sum='false'):
+    def conv2d(g, module, super_opt='false', reduce_sum='false', diag='false'):
         n = g.shape[0]
         g_out_sc = n * g
         grad_output_viewed = g_out_sc.reshape(g_out_sc.shape[0], g_out_sc.shape[1], -1)
@@ -102,7 +106,11 @@ class ComputeG:
 
         if reduce_sum == 'true':
             G = einsum("nkl->nk", G)
-            GG = einsum("nk,qk->nq", (G, G))
+            if diag == 'true':
+                G /= L
+                GG = torch.sum(G * G, dim=1)
+            else:
+                GG = einsum("nk,qk->nq", (G, G))
             module.optimized = True
             return GG, G
 
@@ -121,7 +129,7 @@ class ComputeG:
             return None, G
 
     @staticmethod
-    def linear(g, module, super_opt='false', reduce_sum='false'):
+    def linear(g, module, super_opt='false', reduce_sum='false', diag='false'):
         n = g.shape[0]
         g_out_sc = n * g
         G = g_out_sc
