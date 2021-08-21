@@ -114,7 +114,7 @@ class NGDOptimizer(optim.Optimizer):
                 NGD_kernel = None
                 if self.reduce_sum == 'true':
                     if self.diag == 'true':
-                        NGD_kernel = (II.diag() * GG.diag() / n)
+                        NGD_kernel = (II * GG / n)
                         NGD_inv = torch.reciprocal(NGD_kernel + self.damping)
                     else:
                         NGD_kernel = II * GG / n
@@ -144,8 +144,6 @@ class NGDOptimizer(optim.Optimizer):
                 del AX
 
                 NGD_kernel = out / n
-                NGD_kernel = torch.diag(NGD_kernel.diag()).to(NGD_kernel.device)
-                # print(NGD_kernel)
 
                 ### low-rank approximation of Jacobian
                 if self.low_rank == 'true':
@@ -185,7 +183,6 @@ class NGDOptimizer(optim.Optimizer):
             grad_prod = einsum("no,no->n", (grad_prod, G))
 
             v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
-            # v = NGD_inv * grad_prod
 
             gv = einsum("n,no->no", (v, G))
             gv = einsum("no,ni->oi", (gv, I))

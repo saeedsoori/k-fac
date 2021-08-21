@@ -42,7 +42,9 @@ class ComputeI:
             I = einsum("nkl->nk", I)
             if diag == 'true':
                 I /= L
-            II = einsum("nk,qk->nq", (I, I))
+                II = torch.sum(I * I, dim=1)
+            else:
+                II = einsum("nk,qk->nq", (I, I))
             module.optimized = True
             return II, I
 
@@ -61,7 +63,7 @@ class ComputeI:
             return None, I
 
     @staticmethod
-    def linear(input, module, super_opt='false', reduce_sum='false'):
+    def linear(input, module, super_opt='false', reduce_sum='false', diag='false'):
         I = input        
         II =  einsum("ni,li->nl", (I, I))   
         module.optimized = True
@@ -106,7 +108,9 @@ class ComputeG:
             G = einsum("nkl->nk", G)
             if diag == 'true':
                 G /= L
-            GG = einsum("nk,qk->nq", (G, G))
+                GG = torch.sum(G * G, dim=1)
+            else:
+                GG = einsum("nk,qk->nq", (G, G))
             module.optimized = True
             return GG, G
 
@@ -125,7 +129,7 @@ class ComputeG:
             return None, G
 
     @staticmethod
-    def linear(g, module, super_opt='false', reduce_sum='false'):
+    def linear(g, module, super_opt='false', reduce_sum='false', diag='false'):
         n = g.shape[0]
         g_out_sc = n * g
         G = g_out_sc
