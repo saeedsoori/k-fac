@@ -95,9 +95,7 @@ class NGDOptimizer(optim.Optimizer):
             self.m_bias_Kernel[m] = bias_inv
 
             NGD_kernel = (II * GG) / n
-
             NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
-
             self.m_NGD_Kernel[m] = NGD_inv
 
             self.m_I[m] = (None, self.m_I[m][1])
@@ -144,7 +142,6 @@ class NGDOptimizer(optim.Optimizer):
                 del AX
 
                 NGD_kernel = out / n
-
                 ### low-rank approximation of Jacobian
                 if self.low_rank == 'true':
                     # print('=== low rank ===')
