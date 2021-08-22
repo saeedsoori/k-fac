@@ -83,6 +83,7 @@ parser.add_argument('--memory_efficient', default='false', type=str)
 parser.add_argument('--trial', default='true', type=str)
 parser.add_argument('--super_opt', default='false', type=str)
 parser.add_argument('--reduce_sum', default='false', type=str)
+parser.add_argument('--diag', default='false', type=str)
 parser.add_argument('--partial_backprop', default='false', type=str)
 
 # for adam optimizer
@@ -229,7 +230,8 @@ elif optim_name == 'kngd':
                               gamma=args.gamma,
                               low_rank=args.low_rank,
                               super_opt=args.super_opt,
-                              reduce_sum=args.reduce_sum)
+                              reduce_sum=args.reduce_sum,
+                              diag=args.diag)
 
 elif optim_name == 'kbfgs':
     print('K-BFGS optimizer selected.')
