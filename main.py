@@ -251,7 +251,7 @@ elif optim_name == 'ngd_stream':
   # perform a forward pass to get the dimensions
     net.eval()
     sample_input, sample_classe = next(iter(trainloader)) 
-    sample_output = net(sample_input)  
+    sample_output = net(sample_input.to(args.device))  
     #### TODO: chane to 'cuda'
     if args.device == 'cuda':
       optimizer.initialize()

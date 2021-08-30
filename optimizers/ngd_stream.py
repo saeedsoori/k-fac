@@ -6,7 +6,7 @@ import torch.optim as optim
 from utils.ngd_stream_utils import (ComputeI, ComputeG)
 from torch import einsum, eye, matmul, cumsum
 from torch.linalg import inv, svd
-
+from utils.bmm import BMM
 class NGDStreamOptimizer(optim.Optimizer):
     def __init__(self,
                  model,
@@ -122,11 +122,14 @@ class NGDStreamOptimizer(optim.Optimizer):
         self.I_MEM = torch.zeros(I_size, **kwargs)
         self.G_MEM = torch.zeros(G_size, **kwargs)
         self.grad_MEM = torch.zeros(grad_size, **kwargs)
-        self.grad_prod_MEM = torch.zeros(grad_size, **kwargs)
+        self.grad_prod_MEM = torch.zeros(G_size, **kwargs)
         self.I_offset = I_offset
         self.G_offset = G_offset
         self.grad_offset = grad_offset
-        print('MEM created'*120)
+
+        self.Mul = BMM(self.I_MEM, self.grad_MEM, self.grad_prod_MEM, self.count, self.I_offset, self.grad_offset, self.G_offset, self.m_magma, self.n_magma, self.k_magma)
+
+        print('M created'*120)
 
 
     def _save_input(self, module, input):
@@ -406,9 +409,19 @@ class NGDStreamOptimizer(optim.Optimizer):
         return updates
 
     def _get_natural_grad_all(self, updates, damping):
-
+        result = self.Mul.CublasForward(self.I_MEM, self.grad_MEM, self.grad_prod_MEM, self.m_arr, self.n_arr, self.k_arr, self.count, self.I_offset, self.grad_offset, self.G_offset)
+        #print(self.grad_prod_MEM)
+        
         for m in self.modules:
             classname = m.__class__.__name__.lower()
+
+            # index = self.index[m]
+            # st = self.grad_offset[index]
+            # end = self.grad_offset[index+1]
+            # natural_grad = self.grad_prod_MEM[st:end]
+            # natural_grad = natural_grad.view_as(m.weight.grad.data)
+
+
             index = self.index[m]
             st = self.grad_offset[index]
             end = self.grad_offset[index+1]
@@ -421,16 +434,31 @@ class NGDStreamOptimizer(optim.Optimizer):
             st = self.G_offset[index]
             end = self.G_offset[index+1]
             G = self.G_MEM[st:end]
+            # print('st end, ', st, end)
+            # print('G shape, ', G.shape)
+            I = I.view_as(self.m_I[m][1])
+            G = G.view_as(self.m_G[m][1])
 
+            # grad = grad.reshape([I.shape[1], G.shape[1]])
             grad = grad.view_as(m.weight.grad.data)
+            # grad_prod has the same size and shape as G
+            grad_prod = self.grad_prod_MEM[st:end]
+            # print('grad_prod shape, ', grad_prod.shape)
+
+            grad_prod = grad_prod.view_as(G)
             
             if classname == 'linear':
                 assert(m.optimized == True)
-                I = I.view_as(self.m_I[m][1])
-                G = G.view_as(self.m_G[m][1])
+                # I = I.view_as(self.m_I[m][1])
+                # G = G.view_as(self.m_G[m][1])
                 n = I.shape[0]
                 NGD_inv = self.m_NGD_Kernel[m]
-                grad_prod = einsum("ni,oi->no", (I, grad))
+
+                ## comment next line since we compute grad_prod all at once
+                print('Linear I.shape:', I.shape)
+                print('Linear grad.shape:', grad.shape)
+                grad_prod = I @ grad.t()
+                # grad_prod = einsum("ni,oi->no", (I, grad))
                 grad_prod = einsum("no,no->n", (grad_prod, G))
 
                 v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
@@ -455,15 +483,19 @@ class NGDStreamOptimizer(optim.Optimizer):
 
             elif classname == 'conv2d':
                 grad_reshape = grad.reshape(grad.shape[0], -1)
+                # grad = grad_reshape.t()
                 if m.optimized == True:
                     # print('=== optimized ===')
-                    I = I.view_as(self.m_I[m][1])
-                    G = G.view_as(self.m_G[m][1])
+                    
                     n = I.shape[0]
                     NGD_inv = self.m_NGD_Kernel[m]
 
                     if self.reduce_sum == 'true':
-                        x1 = einsum("nk,mk->nm", (I, grad_reshape))
+                        print('I.shape:', I.shape)
+                        print('grad.shape:', grad.shape)
+                        grad_prod = I @ grad_reshape.t()
+                        x1 = grad_prod
+                        # x1 = einsum("nk,mk->nm", (I, grad_reshape))
                         grad_prod = einsum("nm,nm->n", (x1, G))
 
                         if self.diag == 'true':
@@ -482,7 +514,6 @@ class NGDStreamOptimizer(optim.Optimizer):
                     
                     updates_m = (grad - gv)/damping, bias_update
             updates[m] = updates_m
-
                 
 
             # return updates_m
@@ -559,7 +590,7 @@ class NGDStreamOptimizer(optim.Optimizer):
         updates = {}
         updates_org = {}
         for m in self.modules:
-            classname = m.__class__.__name__
+            classname = m.__class__.__name__.lower()
             if self.steps % self.freq == 0:
                 self._update_inv(m)
             v = self._get_natural_grad(m, damping)
@@ -571,12 +602,13 @@ class NGDStreamOptimizer(optim.Optimizer):
             grad = m.weight.grad.data
             if classname == 'conv2d':
                 grad = grad.reshape(grad.shape[0], -1)
+            # grad = grad.t()
             self.grad_MEM[st:end] = torch.reshape(grad, [1,-1])
 
         self._get_natural_grad_all(updates, damping)
 
         for m in self.modules:
-            print(torch.linalg.norm(updates[m][1] - updates_org[m][1]))
+            print(torch.linalg.norm(updates[m][0] - updates_org[m][0]))
         self._kl_clip_and_update_grad(updates, lr)
         self._step(closure)
         self.steps += 1
