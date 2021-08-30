@@ -37,7 +37,10 @@ class ComputeI:
         L = I.shape[2]
         M = module.out_channels
         module.param_shapes = [N, K, L, M]
-        
+
+        print('Input I shapes [N K L M]:', module.param_shapes)
+        # print('zart'*1000)
+
         if reduce_sum == 'true':
             I = einsum("nkl->nk", I)
             if diag == 'true':
@@ -47,20 +50,9 @@ class ComputeI:
                 II = einsum("nk,qk->nq", (I, I))
             module.optimized = True
             return II, I
+            # return II, torch.reshape(I, [1,-1])
 
-        flag = False
-        if super_opt == 'true':
-            flag = N * (L * L) * (K + M) < K * M * L + N * K * M
-        else:
-            flag = (L * L) * (K + M) < K * M
-
-        if flag == True:
-            II = einsum("nkl,qkp->nqlp", (I, I))
-            module.optimized = True
-            return II, I
-        else:
-            module.optimized = False
-            return None, I
+        
 
     @staticmethod
     def linear(input, module, super_opt='false', reduce_sum='false', diag='false'):
@@ -114,19 +106,7 @@ class ComputeG:
             module.optimized = True
             return GG, G
 
-        flag = False
-        if super_opt == 'true':
-            flag = N * (L * L) * (K + M) < K * M * L + N * K * M
-        else:
-            flag = (L * L) * (K + M) < K * M
-
-        if flag == True :
-            GG = einsum("nml,qmp->nqlp", (G, G))
-            module.optimized = True
-            return GG, G
-        else:
-            module.optimized = False
-            return None, G
+        
 
     @staticmethod
     def linear(g, module, super_opt='false', reduce_sum='false', diag='false'):

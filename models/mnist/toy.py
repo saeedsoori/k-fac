@@ -13,13 +13,13 @@ class ToyNet(nn.Module):
             nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=3),
-            nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(16, 12, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=3),
-            nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(12, 7, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
             nn.Flatten(), 
-            nn.Linear(3*3*16, 10)
+            nn.Linear(3*3*7, 10)
         )
 
     def forward(self, x, bfgs=False):

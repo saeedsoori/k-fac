@@ -1,7 +1,7 @@
 '''Train CIFAR10/CIFAR100 with PyTorch.'''
 import argparse
 import os
-from optimizers import (KFACOptimizer, SKFACOptimizer, EKFACOptimizer, KBFGSOptimizer, KBFGSLOptimizer, KBFGSL2LOOPOptimizer, KBFGSLMEOptimizer, NGDOptimizer)
+from optimizers import (KFACOptimizer, SKFACOptimizer, EKFACOptimizer, KBFGSOptimizer, KBFGSLOptimizer, KBFGSL2LOOPOptimizer, KBFGSLMEOptimizer, NGDOptimizer, NGDStreamOptimizer)
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -218,7 +218,6 @@ elif optim_name == 'exact_ngd':
       os.mkdir('exact')
 
 elif optim_name == 'kngd':
-    # SAEED: TODO fix batchnorm or remove it totally
     print('Test optimizer selected')
     optimizer = NGDOptimizer(net,
                               lr=args.learning_rate,
@@ -232,6 +231,33 @@ elif optim_name == 'kngd':
                               super_opt=args.super_opt,
                               reduce_sum=args.reduce_sum,
                               diag=args.diag)
+
+elif optim_name == 'ngd_stream':
+    # SAEED: TODO fix batchnorm or remove it totally
+    print('NGD Stream Optimizer selected')
+    optimizer = NGDStreamOptimizer(net,
+                              lr=args.learning_rate,
+                              momentum=args.momentum,
+                              damping=args.damping,
+                              kl_clip=args.kl_clip,
+                              weight_decay=args.weight_decay,
+                              freq=args.freq,
+                              gamma=args.gamma,
+                              low_rank=args.low_rank,
+                              super_opt=args.super_opt,
+                              reduce_sum=args.reduce_sum,
+                              diag=args.diag)
+
+  # perform a forward pass to get the dimensions
+    net.eval()
+    sample_input, sample_classe = next(iter(trainloader)) 
+    sample_output = net(sample_input)  
+    #### TODO: chane to 'cuda'
+    if args.device == 'cuda':
+      optimizer.initialize()
+    net.train()
+    # print('*'*1000)
+    # print(sample_output)
 
 elif optim_name == 'kbfgs':
     print('K-BFGS optimizer selected.')
@@ -442,7 +468,7 @@ def train(epoch):
             optimizer.step()
 
         ### new optimizer test
-        elif optim_name in ['kngd'] :
+        elif optim_name in ['kngd', 'ngd_stream'] :
             inputs, targets = inputs.to(args.device), targets.to(args.device)
             optimizer.zero_grad()
             outputs = net(inputs)
