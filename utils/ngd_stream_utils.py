@@ -38,7 +38,7 @@ class ComputeI:
         M = module.out_channels
         module.param_shapes = [N, K, L, M]
 
-        print('Input I shapes [N K L M]:', module.param_shapes)
+        # print('Input I shapes [N K L M]:', module.param_shapes)
         # print('zart'*1000)
 
         if reduce_sum == 'true':

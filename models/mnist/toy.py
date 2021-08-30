@@ -22,6 +22,12 @@ class ToyNet(nn.Module):
             nn.Linear(3*3*7, 10)
         )
 
+        # self.features = nn.Sequential( 
+        #     nn.MaxPool2d(kernel_size=11),
+        #     nn.Flatten(), 
+        #     nn.Linear(4, 10)
+        # )
+
     def forward(self, x, bfgs=False):
         x = self.features(x)
         return x
