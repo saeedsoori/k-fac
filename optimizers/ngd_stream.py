@@ -132,15 +132,17 @@ class NGDStreamOptimizer(optim.Optimizer):
 
         self.Mul = BMM(self.I_MEM, self.grad_MEM, self.grad_prod_MEM, self.count, self.I_offset, self.grad_offset, self.G_offset, self.m_magma, self.n_magma, self.k_magma)
 
-        print('M created'*120)
+        print('Initialization finished')
 
 
     def _save_input(self, module, input):
         # storing the optimized input in forward pass
 
         if torch.is_grad_enabled() and self.steps % self.freq == 0 and self.first_iter[module] == False:
-            II, I = self.IHandler(input[0].data, module, self.super_opt, self.reduce_sum, self.diag)
-            self.m_I[module] = II, I
+            II, I, A, E = self.IHandler(input[0].data, module, self.super_opt, self.reduce_sum, self.diag)
+            self.m_I[module] = II, I, A, E
+            # print('module:', module)
+            # print(self.m_I[module][2])
             index = self.index[module]
             st = self.I_offset[index]
             end = self.I_offset[index+1]
@@ -155,7 +157,7 @@ class NGDStreamOptimizer(optim.Optimizer):
                 L = input[0].shape[-2] * input[0].shape[-1]
                 M = module.weight.shape[0]
                 self.dims[module] = [N, K, L, M]
-                print('Computed shapes:', self.dims[module])
+                # print('Computed shapes:', self.dims[module])
                 self.first_iter[module] = False
 
             elif module.__class__.__name__ == 'Linear':
@@ -214,8 +216,8 @@ class NGDStreamOptimizer(optim.Optimizer):
             NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
             self.m_NGD_Kernel[m] = NGD_inv
 
-            self.m_I[m] = (None, self.m_I[m][1])
-            self.m_G[m] = (None, self.m_G[m][1])
+            self.m_I[m] = None, self.m_I[m][1], self.m_I[m][2], self.m_I[m][3]
+            self.m_G[m] = None, self.m_G[m][1]
             torch.cuda.empty_cache()
         elif classname == 'conv2d':
             # SAEED: @TODO: we don't need II and GG after computations, clear the memory
@@ -239,8 +241,8 @@ class NGDStreamOptimizer(optim.Optimizer):
 
                 self.m_NGD_Kernel[m] = NGD_inv
 
-                self.m_I[m] = (None, self.m_I[m][1])
-                self.m_G[m] = (None, self.m_G[m][1])
+                self.m_I[m] = None, self.m_I[m][1], self.m_I[m][2], self.m_I[m][3]
+                self.m_G[m] = None, self.m_G[m][1]
                 torch.cuda.empty_cache()
             else:
                 # SAEED: @TODO memory cleanup
@@ -278,10 +280,165 @@ class NGDStreamOptimizer(optim.Optimizer):
                 self.m_NGD_Kernel[m] = NGD_inv
 
                 del NGD_inv
-                self.m_I[m] = None, self.m_I[m][1]
+                self.m_I[m] = None, self.m_I[m][1], self.m_I[m][2], self.m_I[m][3]
                 self.m_G[m] = None, self.m_G[m][1]
                 torch.cuda.empty_cache()
 
+    def _get_natural_grad_struct(self, m, damping):
+        grad = m.weight.grad.data
+        classname = m.__class__.__name__.lower()
+
+        if classname == 'linear':
+            assert(m.optimized == True)
+            I = self.m_I[m][1]
+            G = self.m_G[m][1]
+            n = I.shape[0]
+            NGD_inv = self.m_NGD_Kernel[m]
+            grad_prod = einsum("ni,oi->no", (I, grad))
+            grad_prod = einsum("no,no->n", (grad_prod, G))
+
+            v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+
+            gv = einsum("n,no->no", (v, G))
+            gv = einsum("no,ni->oi", (gv, I))
+            gv = gv / n
+
+            bias_update = None
+            if m.bias is not None:
+                grad_bias = m.bias.grad.data
+                if self.steps % self.freq == 0:
+                    grad_prod_bias = einsum("o,no->n", (grad_bias, G))
+                    v = matmul(self.m_bias_Kernel[m], grad_prod_bias.unsqueeze(1)).squeeze()
+                    gv_bias = einsum('n,no->o', (v, G))
+                    gv_bias = gv_bias / n
+                    bias_update = (grad_bias - gv_bias) / damping
+                else:
+                    bias_update = grad_bias
+
+            updates = (grad - gv)/damping, bias_update
+
+        elif classname == 'conv2d':
+            # print('conv2d grad shape:', grad.shape)
+            grad_ = torch.sum(grad, (-2,-1))
+            # print('grad_shape:', grad_.shape)
+            grad_reshape_rs = grad_.reshape(grad_.shape[0], -1)
+            grad_reshape = grad.reshape(grad.shape[0], -1)
+            if m.optimized == True:
+                # print('=== optimized ===')
+                I = self.m_I[m][1]
+                G = self.m_G[m][1]
+                # we have I = A + E
+                # notice A is not repeated and this is the reduced version
+                
+
+                n = I.shape[0]
+                NGD_inv = self.m_NGD_Kernel[m]
+
+                if self.reduce_sum == 'true':
+                    # print('m:', m)
+                    A = self.m_I[m][2]
+                    E = self.m_I[m][3]
+
+                    # the new method computation for x1 = I * g ~ A * g_rs
+                    # print(A.shape)
+                    # print(grad_reshape_rs.shape)
+                    x1 = einsum("nk,mk->nm", (I, grad_reshape))
+                    # if m.stride[0] > 1:
+                    #     x1 = einsum("nk,mk->nm", (I, grad_reshape))
+                    # else:
+                    #     x1 = einsum("nk,mk->nm", (A, grad_reshape_rs))
+                    
+                    x1_rs = einsum("nk,mk->nm", (A, grad_reshape_rs))
+                    err = torch.norm(x1 - x1_rs)/torch.norm(x1)
+
+                    # print('err:', err)
+                    # if err > 1:
+                    #     print(m)
+
+                    grad_prod = einsum("nm,nm->n", (x1, G))
+
+                    if self.diag == 'true':
+                        v = NGD_inv * grad_prod
+                    else:
+                        v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+
+                    gv = einsum("n,nm->nm", (v, G))
+                    gv = einsum("nm,nk->mk", (gv, I))
+                else:
+                    x1 = einsum("nkl,mk->nml", (I, grad_reshape))
+                    grad_prod = einsum("nml,nml->n", (x1, G))
+                    v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+                    gv = einsum("n,nml->nml", (v, G))
+                    gv = einsum("nml,nkl->mk", (gv, I))
+                gv = gv.view_as(grad)
+                gv = gv / n
+
+                bias_update = None
+                if m.bias is not None:
+                    bias_update = m.bias.grad.data
+                
+                updates = (grad - gv)/damping, bias_update
+
+            else:
+                # TODO(bmu): fix low rank
+                if self.low_rank.lower() == 'true':
+                    # print("=== low rank ===")
+
+                    ###### using low rank structure
+                    U, S, V = self.m_UV[m]
+                    NGD_inv = self.m_NGD_Kernel[m]
+                    G = self.m_G[m][1]
+                    n = NGD_inv.shape[0]
+
+                    grad_prod = V @ grad_reshape.t().reshape(-1, 1)
+                    grad_prod = torch.diag(S) @ grad_prod
+                    grad_prod = U @ grad_prod
+                    grad_prod = grad_prod.squeeze()
+
+                    bias_update = None
+                    if m.bias is not None:
+                        bias_update = m.bias.grad.data
+
+                    v = matmul(NGD_inv, (grad_prod).unsqueeze(1)).squeeze()
+
+                    gv = U.t() @ v.unsqueeze(1)
+                    gv = torch.diag(S) @ gv
+                    gv = V.t() @ gv
+
+                    gv = gv.reshape(grad_reshape.shape[1], grad_reshape.shape[0]).t()
+                    gv = gv.view_as(grad)
+                    gv = gv / n
+
+                    updates = (grad - gv)/damping, bias_update
+                else:
+                    I = self.m_I[m][1]
+                    G = self.m_G[m][1]
+                    AX = einsum('nkl,nml->nkm', (I, G))
+
+                    del I
+                    del G
+
+                    n = AX.shape[0]
+
+                    NGD_inv = self.m_NGD_Kernel[m]
+
+                    grad_prod = einsum('nkm,mk->n', (AX, grad_reshape))
+                    v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+                    gv = einsum('nkm,n->mk', (AX, v))
+                    gv = gv.view_as(grad)
+                    gv = gv / n
+
+                    bias_update = None
+                    if m.bias is not None:
+                        bias_update = m.bias.grad.data
+
+                    updates = (grad - gv) / damping, bias_update
+
+                    del AX
+                    del NGD_inv
+                    torch.cuda.empty_cache()
+
+        return updates
     def _get_natural_grad(self, m, damping):
         grad = m.weight.grad.data
         classname = m.__class__.__name__.lower()
@@ -623,20 +780,20 @@ class NGDStreamOptimizer(optim.Optimizer):
             classname = m.__class__.__name__.lower()
             if self.steps % self.freq == 0:
                 self._update_inv(m)
+            v = self._get_natural_grad_struct(m, damping)
             # v = self._get_natural_grad(m, damping)
-            # updates_org[m] = v
+            updates[m] = v
 
-            index = self.index[m]
-            st = self.grad_offset[index]
-            end = self.grad_offset[index+1]
-            grad = m.weight.grad.data
-            if classname == 'conv2d':
-                grad = grad.reshape(grad.shape[0], -1)
-            # grad = grad.permute(1,0)
-            grad = einsum('oi->io', grad)
-            self.grad_MEM[st:end] = torch.reshape(grad, [1,-1])
+            # index = self.index[m]
+            # st = self.grad_offset[index]
+            # end = self.grad_offset[index+1]
+            # grad = m.weight.grad.data
+            # if classname == 'conv2d':
+            #     grad = grad.reshape(grad.shape[0], -1)
+            # grad = einsum('oi->io', grad)
+            # self.grad_MEM[st:end] = torch.reshape(grad, [1,-1])
 
-        self._get_natural_grad_all(updates, damping)
+        # self._get_natural_grad_all(updates, damping)
 
         # for m in self.modules:
         #     print(torch.linalg.norm(updates[m][0] - updates_org[m][0]))
