@@ -139,8 +139,8 @@ class NGDStreamOptimizer(optim.Optimizer):
         # storing the optimized input in forward pass
 
         if torch.is_grad_enabled() and self.steps % self.freq == 0 and self.first_iter[module] == False:
-            II, I, A, E = self.IHandler(input[0].data, module, self.super_opt, self.reduce_sum, self.diag)
-            self.m_I[module] = II, I, A, E
+            II, I, A, E, U, V = self.IHandler(input[0].data, module, self.super_opt, self.reduce_sum, self.diag)
+            self.m_I[module] = II, I, A, E, U, V
             # print('module:', module)
             # print(self.m_I[module][2])
             index = self.index[module]
@@ -216,7 +216,7 @@ class NGDStreamOptimizer(optim.Optimizer):
             NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
             self.m_NGD_Kernel[m] = NGD_inv
 
-            self.m_I[m] = None, self.m_I[m][1], self.m_I[m][2], self.m_I[m][3]
+            self.m_I[m] = None, self.m_I[m][1], self.m_I[m][2], self.m_I[m][3], self.m_I[m][4], self.m_I[m][5]
             self.m_G[m] = None, self.m_G[m][1]
             torch.cuda.empty_cache()
         elif classname == 'conv2d':
@@ -241,7 +241,7 @@ class NGDStreamOptimizer(optim.Optimizer):
 
                 self.m_NGD_Kernel[m] = NGD_inv
 
-                self.m_I[m] = None, self.m_I[m][1], self.m_I[m][2], self.m_I[m][3]
+                self.m_I[m] = None, self.m_I[m][1], self.m_I[m][2], self.m_I[m][3], self.m_I[m][4], self.m_I[m][5]
                 self.m_G[m] = None, self.m_G[m][1]
                 torch.cuda.empty_cache()
             else:
@@ -280,7 +280,7 @@ class NGDStreamOptimizer(optim.Optimizer):
                 self.m_NGD_Kernel[m] = NGD_inv
 
                 del NGD_inv
-                self.m_I[m] = None, self.m_I[m][1], self.m_I[m][2], self.m_I[m][3]
+                self.m_I[m] = None, self.m_I[m][1], self.m_I[m][2], self.m_I[m][3], self.m_I[m][4], self.m_I[m][5]
                 self.m_G[m] = None, self.m_G[m][1]
                 torch.cuda.empty_cache()
 
@@ -338,6 +338,8 @@ class NGDStreamOptimizer(optim.Optimizer):
                     # print('m:', m)
                     A = self.m_I[m][2]
                     E = self.m_I[m][3]
+                    U = self.m_I[m][4]
+                    V = self.m_I[m][5]
 
                     # the new method computation for x1 = I * g ~ A * g_rs
                     # print(A.shape)
@@ -347,9 +349,15 @@ class NGDStreamOptimizer(optim.Optimizer):
                     #     x1 = einsum("nk,mk->nm", (I, grad_reshape))
                     # else:
                     #     x1 = einsum("nk,mk->nm", (A, grad_reshape_rs))
-                    
-                    x1_rs = einsum("nk,mk->nm", (A, grad_reshape_rs))
-                    err = torch.norm(x1 - x1_rs)/torch.norm(x1)
+                    if m.stride[0] == 1:
+                        x1_rs = einsum("nk,mk->nm", (A, grad_reshape_rs))
+                        e1 = einsum("vk,mk->vm", (V, grad_reshape))
+                        e2 = einsum("nv,vm->nm", (U, e1))
+                        x1_rs_e = x1_rs + e2
+                        err = torch.norm(x1 - x1_rs)/torch.norm(x1)
+                        err2 = torch.norm(x1 - x1_rs_e)/torch.norm(x1)
+                        # err2 = 
+                        print('err and err2: ', err, err2)
 
                     # print('err:', err)
                     # if err > 1:
@@ -362,8 +370,22 @@ class NGDStreamOptimizer(optim.Optimizer):
                     else:
                         v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
 
-                    gv = einsum("n,nm->nm", (v, G))
-                    gv = einsum("nm,nk->mk", (gv, I))
+                    G_scaled = einsum("n,nm->nm", (v, G))
+                    gv = einsum("nm,nk->mk", (G_scaled, I))
+
+                    ### we have to replace this operation: gv = einsum("nm,nk->mk", (gv, I))
+                    ## I ~ A + U * V
+                    # A has dimension (batch, cin)
+                    # U and V have dimensions (cin, r) and (r, cout) where r is the rank parameter (default=1).
+
+                    AG = einsum("nk,nm->km", (A, G))
+                    AG_expand = torch.repeat_interleave(AG, m.stride[0] * m.stride[1], dim=0)
+                    aux_var = einsum("nr,nm->rm", (U, G))
+                    residu = einsum("rk,rm->km", (V, aux_var))
+                    gv_stim = AG_expand + residu 
+                    err_gv = torch.norm(gv - gv_stim)/torch.norm(gv)
+
+                    
                 else:
                     x1 = einsum("nkl,mk->nml", (I, grad_reshape))
                     grad_prod = einsum("nml,nml->n", (x1, G))

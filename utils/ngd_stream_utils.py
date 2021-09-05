@@ -14,10 +14,10 @@ class ComputeI:
     def __call__(cls, a, module, super_opt='false', reduce_sum='false', diag='false'):
         if isinstance(module, nn.Linear):
             II, I = cls.linear(a, module, super_opt, reduce_sum, diag)
-            return II, I, [], []
+            return II, I, [], [], [], []
         elif isinstance(module, nn.Conv2d):
-            II, I, A, E = cls.conv2d(a, module, super_opt, reduce_sum, diag)
-            return II, I, A, E
+            II, I, A, E, U, V = cls.conv2d(a, module, super_opt, reduce_sum, diag)
+            return II, I, A, E, U, V
         else:
             # FIXME(CW): for extension to other layers.
             # raise NotImplementedError
@@ -56,22 +56,22 @@ class ComputeI:
 
             u,s,v = torch.linalg.svd(E, full_matrices=False)
             # cs = torch.cumsum(s, dim=0)/torch.sum(s)
-            rank = 10
+            rank = 1
             U = u[:, 0:rank]
             S = s[0:rank]
             V = torch.diag(S) @ v[0:rank,:]
-            print('U S V:', U.shape, S.shape, V.shape)
+            # print('U S V:', U.shape, S.shape, V.shape)
 
             E_estim = torch.matmul(U,V)
-            print(E_estim.shape)
-            print(torch.norm(E - E_estim)/torch.norm(E))
+            # print(E_estim.shape)
+            # print(torch.norm(E - E_estim)/torch.norm(E))
             if diag == 'true':
                 I /= L
                 II = torch.sum(I * I, dim=1)
             else:
                 II = einsum("nk,qk->nq", (I, I))
             module.optimized = True
-            return II, I, sum_x, E
+            return II, I, sum_x, E, U, V
             # return II, torch.reshape(I, [1,-1])
 
         
