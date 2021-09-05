@@ -56,7 +56,7 @@ class ComputeI:
 
             u,s,v = torch.linalg.svd(E, full_matrices=False)
             # cs = torch.cumsum(s, dim=0)/torch.sum(s)
-            rank = 1
+            rank = 10
             U = u[:, 0:rank]
             S = s[0:rank]
             V = torch.diag(S) @ v[0:rank,:]
