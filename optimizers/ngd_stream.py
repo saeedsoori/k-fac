@@ -329,9 +329,7 @@ class NGDStreamOptimizer(optim.Optimizer):
                 G = self.m_G[m][1]
                 # we have I = A + E
                 # notice A is not repeated and this is the reduced version
-                
-
-                n = I.shape[0]
+                n = G.shape[0]
                 NGD_inv = self.m_NGD_Kernel[m]
 
                 if self.reduce_sum == 'true':
@@ -344,9 +342,12 @@ class NGDStreamOptimizer(optim.Optimizer):
                     # the new method computation for x1 = I * g ~ A * g_rs
                     
                     if m.stride[0] == 1:
-                        x1_rs = einsum("nk,mk->nm", (A, grad_reshape_rs))
-                        e1 = einsum("vk,mk->vm", (V, grad_reshape))
-                        e2 = einsum("nv,vm->nm", (U, e1))
+                        # x1_rs = einsum("nk,mk->nm", (A, grad_reshape_rs))
+                        x1_rs = torch.matmul(A, grad_reshape_rs.t())
+                        # e1 = einsum("vk,mk->vm", (V, grad_reshape))
+                        e1 = torch.matmul(V, grad_reshape.t())
+                        # e2 = einsum("nv,vm->nm", (U, e1))
+                        e2 = torch.matmul(U, e1)
                         x1 = x1_rs + e2
                         ## error:
                         ## x1_rs_e = x1_rs + e2
@@ -371,11 +372,15 @@ class NGDStreamOptimizer(optim.Optimizer):
                         v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
 
                     G_scaled = einsum("n,nm->nm", (v, G))
-                    if m.stride[0] == 1:
-                        AG = einsum("nk,nm->mk", (A, G_scaled))
+                    if m.stride[0] == 1 and 1 == 2:
+                        # AG = einsum("nk,nm->mk", (A, G_scaled))
+                        AG = torch.matmul(G_scaled.t(), A)
                         AG_expand = torch.repeat_interleave(AG, m.kernel_size[0] * m.kernel_size[1], dim=1)
-                        aux_var = einsum("nr,nm->rm", (U, G_scaled))
-                        residu = einsum("rk,rm->mk", (V, aux_var))
+                        # aux_var = einsum("nr,nm->rm", (U, G_scaled))
+                        aux_var = torch.matmul(U.t(), G_scaled)
+                        # residu = einsum("rk,rm->mk", (V, aux_var))
+                        residu = torch.matmul(aux_var.t(), V)
+
                         gv = AG_expand + residu
                         
                         ## Error:

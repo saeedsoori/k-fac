@@ -62,7 +62,7 @@ class ComputeI:
             V = torch.diag(S) @ v[0:rank,:]
             # print('U S V:', U.shape, S.shape, V.shape)
 
-            E_estim = torch.matmul(U,V)
+            # E_estim = torch.matmul(U,V)
             # print(E_estim.shape)
             # print(torch.norm(E - E_estim)/torch.norm(E))
             if diag == 'true':
