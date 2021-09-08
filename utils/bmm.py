@@ -20,7 +20,5 @@ class BMM():
     def MagmaForward(self, A, B, C, m , n, k, batch_size):
         return self.mul_op.MagmaForward(m, n, k, batch_size)
 
-    def CublasForward(self, A, B, C, m , n, k, batch_size, offset_A, offset_B, offset_C):
-        return self.mul_op.CublasForward(A, B, C, m, n, k, batch_size, offset_A, offset_B, offset_C)
-
-    
+    def CublasForward(self, A, B, C, m , n, k, batch_size, offset_A, offset_B, offset_C, A_T=False, B_T=False):
+        return self.mul_op.CublasForward(A, B, C, m, n, k, batch_size, offset_A, offset_B, offset_C, A_T, B_T)
