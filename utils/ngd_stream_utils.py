@@ -56,13 +56,13 @@ class ComputeI:
 
             u,s,v = torch.linalg.svd(E, full_matrices=False)
             # cs = torch.cumsum(s, dim=0)/torch.sum(s)
-            rank = 1
+            rank = 10
             U = u[:, 0:rank]
             S = s[0:rank]
             V = torch.diag(S) @ v[0:rank,:]
             # print('U S V:', U.shape, S.shape, V.shape)
 
-            E_estim = torch.matmul(U,V)
+            # E_estim = torch.matmul(U,V)
             # print(E_estim.shape)
             # print(torch.norm(E - E_estim)/torch.norm(E))
             if diag == 'true':
