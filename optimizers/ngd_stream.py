@@ -7,6 +7,8 @@ from utils.ngd_stream_utils import (ComputeI, ComputeG)
 from torch import einsum, eye, matmul, cumsum
 from torch.linalg import inv, svd
 from utils.bmm import BMM
+
+import time
 class NGDStreamOptimizer(optim.Optimizer):
     def __init__(self,
                  model,
@@ -88,6 +90,7 @@ class NGDStreamOptimizer(optim.Optimizer):
         A_size = 0
 
         # I_offset = [0]
+        A_offset = [0]
         G_offset = [0]
         grad_offset = [0]
         grad_rs_offset = [0]
@@ -149,10 +152,12 @@ class NGDStreamOptimizer(optim.Optimizer):
         self.grad_MEM = torch.zeros(grad_size, **kwargs)
         self.grad_rs_MEM = torch.zeros(grad_rs_size, **kwargs)
         self.grad_gv_MEM = torch.zeros(grad_size, **kwargs)
+        self.grad_gv_rs_MEM = torch.zeros(grad_rs_size, **kwargs)
         self.grad_prod_MEM = torch.zeros(G_size, **kwargs)
         self.gv_MEM = torch.zeros(G_size, **kwargs)
         self.gv_temp_MEM = torch.zeros(G_size, **kwargs)
         self.A_MEM = torch.zeros(A_size, **kwargs)
+        self.NGD_inv_MEM = torch.zeros((self.mshapes[0], self.mshapes[0] * self.count) , **kwargs)
         self.A_offset = A_offset
         # self.I_offset = I_offset
         self.G_offset = G_offset
@@ -161,6 +166,7 @@ class NGDStreamOptimizer(optim.Optimizer):
 
         # self.Mul = BMM(self.I_MEM, self.grad_MEM, self.grad_prod_MEM, self.count, self.I_offset, self.grad_offset, self.G_offset, self.m_magma, self.n_magma, self.k_magma)
         self.Mul = BMM(self.A_MEM, self.grad_rs_MEM, self.grad_prod_MEM, self.count, self.A_offset, self.grad_rs_offset, self.G_offset, self.m_magma, self.n_magma, self.k_magma)
+        # self.Mul2 = BMM(self.G_MEM, self.A_MEM, self.grad_gv_rs_MEM, self.count, self.G_offset, self.A_offset, self.grad_rs_offset, self.m_magma, self.n_magma, self.k_magma)
 
         print('Initialization finished')
 
@@ -327,88 +333,106 @@ class NGDStreamOptimizer(optim.Optimizer):
                 self.m_G[m] = None, self.m_G[m][1]
                 torch.cuda.empty_cache()
     def _get_natural_grad_struct_all(self, updates, damping):
+        a = 2
         # grad = m.weight.grad.data
         # classname = m.__class__.__name__.lower()
 
 
 
 
-        result = self.Mul.CublasForward(self.A_MEM, self.grad_rs_MEM, self.grad_prod_MEM, self.m_arr, self.n_arr, self.cin_arr, self.count, self.A_offset, self.grad_rs_offset, self.G_offset)
+        # result = self.Mul.CublasForward(self.A_MEM, self.grad_rs_MEM, self.grad_prod_MEM, self.m_arr, self.n_arr, self.cin_arr, self.count, self.A_offset, self.grad_rs_offset, self.G_offset)
+        #### doing elementwise  multiplicatio with G
+        # self.grad_prod_MEM = self.grad_prod_MEM * self.G_MEM
+        ## TODO: SAEED fix the next line by a for loop over modules and reduction seperately
+        # print('DD: ', self.G_MEM.shape)
+        # print('self.NGD_inv_MEM: ', self.NGD_inv_MEM.shape)
+        # self.grad_prod_MEM2 = torch.randn(self.NGD_inv_MEM.shape[1], self.grad_prod_MEM.numel()//self.NGD_inv_MEM.shape[1] )
+        # self.grad_prod_MEM3 = torch.sum(self.grad_prod_MEM2, -1)
+        
+        # v = matmul(self.NGD_inv_MEM, self.grad_prod_MEM3).squeeze()
+        # self.G_scaled = self.G_MEM * self.G_MEM
+
+        # AG = torch.matmul(G_scaled.t(), A)
+        # result = self.Mul.CublasForward(self.G_scaled, self.A_MEM, self.grad_prod_MEM, self.m_arr, self.cin_arr, self.n_arr, self.count, self.G_offset, self.A_offset, self.G_offset, A_T = True, B_T = False)
+        # result = self.Mul.CublasForward(self.A_MEM, self.grad_rs_MEM, self.grad_prod_MEM, self.m_arr, self.n_arr, self.cin_arr, self.count, self.A_offset, self.grad_rs_offset, self.G_offset)
+
+        # AG_expand = torch.repeat_interleave(self.grad_prod_MEM, 9, dim=0)
+
 
         #### doing elementwise  multiplicatio with G
         # self.grad_prod_MEM = self.grad_prod_MEM * self.G_MEM
-        for m in self.modules:
-            grad = m.weight.grad.data
-            classname = m.__class__.__name__.lower()
-            if classname == 'linear':
-                assert(m.optimized == True)
-                I = self.m_I[m][1]
-                G = self.m_G[m][1]
-                n = I.shape[0]
-                NGD_inv = self.m_NGD_Kernel[m]
-                grad_prod = einsum("ni,oi->no", (I, grad))
-                grad_prod = einsum("no,no->n", (grad_prod, G))
+        # for m in self.modules:
+        #     grad = m.weight.grad.data
+        #     classname = m.__class__.__name__.lower()
+        #     if classname == 'linear':
+        #         assert(m.optimized == True)
+        #         I = self.m_I[m][1]
+        #         G = self.m_G[m][1]
+        #         n = I.shape[0]
+        #         NGD_inv = self.m_NGD_Kernel[m]
+        #         grad_prod = einsum("ni,oi->no", (I, grad))
+        #         grad_prod = einsum("no,no->n", (grad_prod, G))
 
-                v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+        #         v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
 
-                gv = einsum("n,no->no", (v, G))
-                gv = einsum("no,ni->oi", (gv, I))
-                gv = gv / n
+        #         gv = einsum("n,no->no", (v, G))
+        #         gv = einsum("no,ni->oi", (gv, I))
+        #         gv = gv / n
 
-                bias_update = None
-                if m.bias is not None:
-                    grad_bias = m.bias.grad.data
-                    if self.steps % self.freq == 0:
-                        grad_prod_bias = einsum("o,no->n", (grad_bias, G))
-                        v = matmul(self.m_bias_Kernel[m], grad_prod_bias.unsqueeze(1)).squeeze()
-                        gv_bias = einsum('n,no->o', (v, G))
-                        gv_bias = gv_bias / n
-                        bias_update = (grad_bias - gv_bias) / damping
-                    else:
-                        bias_update = grad_bias
+        #         bias_update = None
+        #         if m.bias is not None:
+        #             grad_bias = m.bias.grad.data
+        #             if self.steps % self.freq == 0:
+        #                 grad_prod_bias = einsum("o,no->n", (grad_bias, G))
+        #                 v = matmul(self.m_bias_Kernel[m], grad_prod_bias.unsqueeze(1)).squeeze()
+        #                 gv_bias = einsum('n,no->o', (v, G))
+        #                 gv_bias = gv_bias / n
+        #                 bias_update = (grad_bias - gv_bias) / damping
+        #             else:
+        #                 bias_update = grad_bias
 
-                updates = (grad - gv)/damping, bias_update
+        #         updates = (grad - gv)/damping, bias_update
 
-            elif classname == 'conv2d':
-                # print('conv2d grad shape:', grad.shape)
-                grad_ = torch.sum(grad, (-2,-1))
-                # print('grad_shape:', grad_.shape)
-                grad_reshape_rs = grad_.reshape(grad_.shape[0], -1)
-                grad_reshape = grad.reshape(grad.shape[0], -1)
-                if m.optimized == True:
-                    # print('=== optimized ===')
-                    I = self.m_I[m][1]
-                    G = self.m_G[m][1]
-                    # we have I = A + E
-                    # notice A is not repeated and this is the reduced version
-                    n = G.shape[0]
-                    NGD_inv = self.m_NGD_Kernel[m]
+        #     elif classname == 'conv2d':
+        #         # print('conv2d grad shape:', grad.shape)
+        #         grad_ = torch.sum(grad, (-2,-1))
+        #         # print('grad_shape:', grad_.shape)
+        #         grad_reshape_rs = grad_.reshape(grad_.shape[0], -1)
+        #         grad_reshape = grad.reshape(grad.shape[0], -1)
+        #         if m.optimized == True:
+        #             # print('=== optimized ===')
+        #             I = self.m_I[m][1]
+        #             G = self.m_G[m][1]
+        #             # we have I = A + E
+        #             # notice A is not repeated and this is the reduced version
+        #             n = G.shape[0]
+        #             NGD_inv = self.m_NGD_Kernel[m]
 
-                    # print('m:', m)
-                    A = self.m_I[m][2]
-                    E = self.m_I[m][3]
-                    U = self.m_I[m][4]
-                    V = self.m_I[m][5]
+        #             # print('m:', m)
+        #             A = self.m_I[m][2]
+        #             E = self.m_I[m][3]
+        #             U = self.m_I[m][4]
+        #             V = self.m_I[m][5]
 
                     # the new method computation for x1 = I * g ~ A * g_rs
-                    if m.stride[0] == 1:
-                        # x1_rs = einsum("nk,mk->nm", (A, grad_reshape_rs))
-                        x1_rs = torch.matmul(A, grad_reshape_rs.t())
-                        # e1 = einsum("vk,mk->vm", (V, grad_reshape))
-                        e1 = torch.matmul(V, grad_reshape.t())
-                        # e2 = einsum("nv,vm->nm", (U, e1))
-                        e2 = torch.matmul(U, e1)
-                        x1 = x1_rs + e2
-                        ## error:
-                        ## x1_rs_e = x1_rs + e2
-                        # err = torch.norm(x1 - x1_rs)/torch.norm(x1)
-                        # err2 = torch.norm(x1 - x1_rs_e)/torch.norm(x1)
-                        # print('err and err2: ', err, err2)
-                    else:
-                        x1 = einsum("nk,mk->nm", (I, grad_reshape))
+                    # if m.stride[0] == 1:
+                    #     # x1_rs = einsum("nk,mk->nm", (A, grad_reshape_rs))
+                    #     x1_rs = torch.matmul(A, grad_reshape_rs.t())
+                    #     # e1 = einsum("vk,mk->vm", (V, grad_reshape))
+                    #     e1 = torch.matmul(V, grad_reshape.t())
+                    #     # e2 = einsum("nv,vm->nm", (U, e1))
+                    #     e2 = torch.matmul(U, e1)
+                    #     x1 = x1_rs + e2
+                    #     ## error:
+                    #     ## x1_rs_e = x1_rs + e2
+                    #     # err = torch.norm(x1 - x1_rs)/torch.norm(x1)
+                    #     # err2 = torch.norm(x1 - x1_rs_e)/torch.norm(x1)
+                    #     # print('err and err2: ', err, err2)
+                    # else:
+                    #     x1 = einsum("nk,mk->nm", (I, grad_reshape))
 
 
-                    grad_prod = einsum("nm,nm->n", (x1, G))
+                    # grad_prod = einsum("nm,nm->n", (x1, G))
 
 
                     ### we have to replace this operation: gv = einsum("nm,nk->mk", (gv, I))
@@ -417,35 +441,35 @@ class NGDStreamOptimizer(optim.Optimizer):
                     # U and V have dimensions (cin, r) and (r, cout) where r is the rank parameter (default=1).
 
                     
-                    v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+                    # v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
 
-                    G_scaled = einsum("n,nm->nm", (v, G))
-                    if m.stride[0] == 1:
-                        # AG = einsum("nk,nm->mk", (A, G_scaled))
-                        AG = torch.matmul(G_scaled.t(), A)
-                        AG_expand = torch.repeat_interleave(AG, m.kernel_size[0] * m.kernel_size[1], dim=1)
-                        # aux_var = einsum("nr,nm->rm", (U, G_scaled))
-                        aux_var = torch.matmul(U.t(), G_scaled)
-                        # residu = einsum("rk,rm->mk", (V, aux_var))
-                        residu = torch.matmul(aux_var.t(), V)
+                    # G_scaled = einsum("n,nm->nm", (v, G))
+                    # if m.stride[0] == 1:
+                    #     # AG = einsum("nk,nm->mk", (A, G_scaled))
+                    #     AG = torch.matmul(G_scaled.t(), A)
+                    #     AG_expand = torch.repeat_interleave(AG, m.kernel_size[0] * m.kernel_size[1], dim=1)
+                    #     # aux_var = einsum("nr,nm->rm", (U, G_scaled))
+                    #     aux_var = torch.matmul(U.t(), G_scaled)
+                    #     # residu = einsum("rk,rm->mk", (V, aux_var))
+                    #     residu = torch.matmul(aux_var.t(), V)
 
-                        gv = AG_expand + residu
+                    #     gv = AG_expand + residu
                         
-                        ## Error:
-                        ## gv_stim = AG_expand + residu
-                        # err_gv = torch.norm(gv - gv_stim)/torch.norm(gv)
-                        # print('err_gv: ', err_gv)
-                    else:
-                        gv = einsum("nm,nk->mk", (G_scaled, I))
+                    #     ## Error:
+                    #     ## gv_stim = AG_expand + residu
+                    #     # err_gv = torch.norm(gv - gv_stim)/torch.norm(gv)
+                    #     # print('err_gv: ', err_gv)
+                    # else:
+                    #     gv = einsum("nm,nk->mk", (G_scaled, I))
 
-                    gv = gv.view_as(grad)
-                    gv = gv / n
+                    # gv = gv.view_as(grad)
+                    # gv = gv / n
 
-                    bias_update = None
-                    if m.bias is not None:
-                        bias_update = m.bias.grad.data
+                    # bias_update = None
+                    # if m.bias is not None:
+                    #     bias_update = m.bias.grad.data
                     
-                    updates = (grad - gv)/damping, bias_update
+                    # updates = (grad - gv)/damping, bias_update
 
                 
             # return updates
@@ -971,14 +995,18 @@ class NGDStreamOptimizer(optim.Optimizer):
         lr = group['lr']
         damping = group['damping']
         updates = {}
-        updates_org = {}
+        updates_new = {}
+        k = 0
+        # torch.cuda.synchronize()
+        # st_time = time.time()
         for m in self.modules:
             classname = m.__class__.__name__.lower()
             if self.steps % self.freq == 0:
                 self._update_inv(m)
             # v = self._get_natural_grad_struct(m, damping)
-            v = self._get_natural_grad(m, damping)
-            updates[m] = v
+            # v = self._get_natural_grad(m, damping)
+            # updates[m] = v
+            # updates[m] = torch.Tensor(0), torch.Tensor(0)
 
             index = self.index[m]
             st = self.grad_offset[index]
@@ -987,15 +1015,24 @@ class NGDStreamOptimizer(optim.Optimizer):
             if classname == 'conv2d':
                 grad = grad.reshape(grad.shape[0], -1)
                 grad_rs = torch.sum(grad, (-2,-1))
-            # grad = einsum('oi->io', grad)
             self.grad_MEM[st:end] = torch.reshape(grad, [1,-1])
-            self.grad_rs_MEM[st:end] = torch.reshape(grad, [1,-1])
+            self.grad_rs_MEM[st:end] = torch.reshape(grad_rs, [1,-1])
+            n = self.mshapes[0]
+            self.NGD_inv_MEM[0:n, k * n: n * (k + 1)] = self.m_NGD_Kernel[m]
+            k += 1
+
+        # torch.cuda.synchronize()
+        # print('Normal:', time.time() - st_time)
+        # torch.cuda.synchronize()
+        # st_time = time.time()
 
         # self._get_natural_grad_all(updates, damping)
-        self._get_natural_grad_struct_all(updates, damping)
+        self._get_natural_grad_struct_all(updates_new, damping)
+        # torch.cuda.synchronize()
+        # print('Struct:', time.time() - st_time)
 
         # for m in self.modules:
         #     print(torch.linalg.norm(updates[m][0] - updates_org[m][0]))
-        self._kl_clip_and_update_grad(updates, lr)
+        # self._kl_clip_and_update_grad(updates, lr)
         self._step(closure)
         self.steps += 1

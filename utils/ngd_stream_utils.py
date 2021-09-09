@@ -14,7 +14,7 @@ class ComputeI:
     def __call__(cls, a, module, super_opt='false', reduce_sum='false', diag='false', perturb='false'):
         if isinstance(module, nn.Linear):
             II, I = cls.linear(a, module, super_opt, reduce_sum, diag, perturb)
-            return II, I, [], [], [], []
+            return II, I, I, [], [], []
         elif isinstance(module, nn.Conv2d):
             II, I, A, E, U, V = cls.conv2d(a, module, super_opt, reduce_sum, diag, perturb)
             return II, I, A, E, U, V
@@ -25,7 +25,7 @@ class ComputeI:
 
     @staticmethod
     def conv2d(input, module, super_opt='false', reduce_sum='false', diag='false', perturb='false'):
-        I = 0
+        # I = 0
         # if module.stride[0] != 1:
         f = Unfold(
             kernel_size=module.kernel_size,
@@ -39,7 +39,7 @@ class ComputeI:
         L = I.shape[2]
         M = module.out_channels
         module.param_shapes = [N, K, L, M]
-
+        I = einsum("nkl->nk", I)
         # N_es = input.shape[0]
         # K_es = module.kernel_size[0] * module.kernel_size[1] * module.in_channels
         # # assume padding 1
@@ -69,7 +69,7 @@ class ComputeI:
             U = 0
             V = 0
             if perturb == 'true':
-                I = einsum("nkl->nk", I)
+                
                 r = sum_x.repeat_interleave(module.kernel_size[0]*module.kernel_size[1])
                 A = r.view_as(I) 
                 E = I - A
