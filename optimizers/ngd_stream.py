@@ -20,6 +20,7 @@ class NGDStreamOptimizer(optim.Optimizer):
                  low_rank='true',
                  super_opt='false',
                  reduce_sum='false',
+                 perturb='false',
                  diag='false'):
         if lr < 0.0:
             raise ValueError("Invalid learning rate: {}".format(lr))
@@ -39,6 +40,7 @@ class NGDStreamOptimizer(optim.Optimizer):
         self.model = model
         self.first_iter = {}
         self.dims = {}
+        self.is_conv2d = {}
         self.index = {}
         self.count = -1
 
@@ -46,7 +48,8 @@ class NGDStreamOptimizer(optim.Optimizer):
         self.mshapes = []
         self.nshapes = []
         self.kshapes = []
-
+        self.cinshapes = []
+        self.perturb = perturb
         self._prepare_model()
         # print('H'*100)
         self.steps = 0
@@ -65,6 +68,7 @@ class NGDStreamOptimizer(optim.Optimizer):
         self.diag = diag
         self.damping = damping
 
+
         
 
     def initialize(self):
@@ -77,34 +81,54 @@ class NGDStreamOptimizer(optim.Optimizer):
           'device': device,
           'requires_grad': False}
 
-        I_size = 0
+        # I_size = 0
         G_size = 0
         grad_size = 0
+        grad_rs_size = 0
+        A_size = 0
 
-        I_offset = [0]
+        # I_offset = [0]
         G_offset = [0]
         grad_offset = [0]
+        grad_rs_offset = [0]
         i = 0
         for v in self.dims:
-            print(self.dims[v])
             n = self.dims[v][0]
             k = self.dims[v][1]
             m = self.dims[v][-1]
-            I_size += n * k
+
+            if self.is_conv2d[v]:
+                cin = self.dims[v][2]
+                print('cin for conv:', cin)
+                A_size += n * cin
+            else:
+                A_size += n * k
+                cin = k
+                print('cin for linear:', cin)
+
+
+
+            # I_size += n * k
             G_size += n * m
             grad_size += k * m
-            I_offset.append(I_size)
+            grad_rs_size += cin * m
+            
+            # I_offset.append(I_size)
             G_offset.append(G_size)
             grad_offset.append(grad_size)
+            grad_rs_offset.append(grad_rs_size)
+            A_offset.append(A_size)
             self.index[v] = i
             self.mshapes.append(n)
             self.nshapes.append(m)
             self.kshapes.append(k)
+            self.cinshapes.append(cin)
             i += 1
 
         self.mshapes.append(0)
         self.nshapes.append(0)
         self.kshapes.append(0)
+        self.cinshapes.append(0)
 
 
         self.m_magma = torch.IntTensor(self.mshapes)
@@ -118,19 +142,25 @@ class NGDStreamOptimizer(optim.Optimizer):
         self.m_arr = self.mshapes
         self.n_arr = self.nshapes
         self.k_arr = self.kshapes
+        self.cin_arr = self.cinshapes
 
-        self.I_MEM = torch.zeros(I_size, **kwargs)
+        # self.I_MEM = torch.zeros(I_size, **kwargs)
         self.G_MEM = torch.zeros(G_size, **kwargs)
         self.grad_MEM = torch.zeros(grad_size, **kwargs)
+        self.grad_rs_MEM = torch.zeros(grad_rs_size, **kwargs)
         self.grad_gv_MEM = torch.zeros(grad_size, **kwargs)
         self.grad_prod_MEM = torch.zeros(G_size, **kwargs)
         self.gv_MEM = torch.zeros(G_size, **kwargs)
         self.gv_temp_MEM = torch.zeros(G_size, **kwargs)
-        self.I_offset = I_offset
+        self.A_MEM = torch.zeros(A_size, **kwargs)
+        self.A_offset = A_offset
+        # self.I_offset = I_offset
         self.G_offset = G_offset
         self.grad_offset = grad_offset
+        self.grad_rs_offset = grad_rs_offset
 
-        self.Mul = BMM(self.I_MEM, self.grad_MEM, self.grad_prod_MEM, self.count, self.I_offset, self.grad_offset, self.G_offset, self.m_magma, self.n_magma, self.k_magma)
+        # self.Mul = BMM(self.I_MEM, self.grad_MEM, self.grad_prod_MEM, self.count, self.I_offset, self.grad_offset, self.G_offset, self.m_magma, self.n_magma, self.k_magma)
+        self.Mul = BMM(self.A_MEM, self.grad_rs_MEM, self.grad_prod_MEM, self.count, self.A_offset, self.grad_rs_offset, self.G_offset, self.m_magma, self.n_magma, self.k_magma)
 
         print('Initialization finished')
 
@@ -139,14 +169,17 @@ class NGDStreamOptimizer(optim.Optimizer):
         # storing the optimized input in forward pass
 
         if torch.is_grad_enabled() and self.steps % self.freq == 0 and self.first_iter[module] == False:
-            II, I, A, E, U, V = self.IHandler(input[0].data, module, self.super_opt, self.reduce_sum, self.diag)
+            II, I, A, E, U, V = self.IHandler(input[0].data, module, self.super_opt, self.reduce_sum, self.diag, self.perturb)
             self.m_I[module] = II, I, A, E, U, V
             # print('module:', module)
             # print(self.m_I[module][2])
             index = self.index[module]
-            st = self.I_offset[index]
-            end = self.I_offset[index+1]
-            self.I_MEM[st:end] = torch.reshape(I, [1,-1])
+            # st = self.I_offset[index]
+            # end = self.I_offset[index+1]
+            # self.I_MEM[st:end] = torch.reshape(I, [1,-1])
+            st = self.A_offset[index]
+            end = self.A_offset[index+1]
+            self.A_MEM[st:end] = torch.reshape(A, [1,-1])
 
         if self.first_iter[module] == True:
             if module.__class__.__name__ == 'Conv2d':
@@ -156,16 +189,22 @@ class NGDStreamOptimizer(optim.Optimizer):
                 K = module.weight.shape[1] * module.weight.shape[2] * module.weight.shape[3]
                 L = input[0].shape[-2] * input[0].shape[-1]
                 M = module.weight.shape[0]
-                self.dims[module] = [N, K, L, M]
+                ## verify next line
+                Cin = module.weight.shape[1] 
+                print('Cin:', Cin)
+                self.dims[module] = [N, K, Cin, M]
                 # print('Computed shapes:', self.dims[module])
                 self.first_iter[module] = False
+                self.is_conv2d[module] = True
 
             elif module.__class__.__name__ == 'Linear':
                 # TODO: add computations for linear layer too
                 N = input[0].shape[0]
                 K = input[0].shape[1]
                 M = module.weight.shape[0]
-                self.dims[module] = [N,K,M]
+                cin = 0
+                self.dims[module] = [N, K, cin, M]
+                self.is_conv2d[module] = False
 
                 # print('XXXX:', self.dims[module])
                 self.first_iter[module] = False
@@ -176,12 +215,16 @@ class NGDStreamOptimizer(optim.Optimizer):
     def _save_grad_output(self, module, grad_input, grad_output):
         # storing the optimized gradients in backward pass
         if self.acc_stats and self.steps % self.freq == 0:
-            GG, G = self.GHandler(grad_output[0].data, module, self.super_opt, self.reduce_sum, self.diag)
+            GG, G = self.GHandler(grad_output[0].data, module, self.super_opt, self.reduce_sum, self.diag, self.perturb)
             self.m_G[module] = GG, G
             index = self.index[module]
             st = self.G_offset[index]
             end = self.G_offset[index+1]
             self.G_MEM[st:end] = torch.reshape(G, [1,-1])
+
+            # grad_ = torch.sum(grad, (-2,-1))
+            # # print('grad_shape:', grad_.shape)
+            # grad_reshape_rs = grad_.reshape(grad_.shape[0], -1)
 
     def _prepare_model(self):
         count = 0
@@ -283,6 +326,129 @@ class NGDStreamOptimizer(optim.Optimizer):
                 self.m_I[m] = None, self.m_I[m][1], self.m_I[m][2], self.m_I[m][3], self.m_I[m][4], self.m_I[m][5]
                 self.m_G[m] = None, self.m_G[m][1]
                 torch.cuda.empty_cache()
+    def _get_natural_grad_struct_all(self, updates, damping):
+        # grad = m.weight.grad.data
+        # classname = m.__class__.__name__.lower()
+
+
+
+
+        result = self.Mul.CublasForward(self.A_MEM, self.grad_rs_MEM, self.grad_prod_MEM, self.m_arr, self.n_arr, self.cin_arr, self.count, self.A_offset, self.grad_rs_offset, self.G_offset)
+
+        #### doing elementwise  multiplicatio with G
+        # self.grad_prod_MEM = self.grad_prod_MEM * self.G_MEM
+        for m in self.modules:
+            grad = m.weight.grad.data
+            classname = m.__class__.__name__.lower()
+            if classname == 'linear':
+                assert(m.optimized == True)
+                I = self.m_I[m][1]
+                G = self.m_G[m][1]
+                n = I.shape[0]
+                NGD_inv = self.m_NGD_Kernel[m]
+                grad_prod = einsum("ni,oi->no", (I, grad))
+                grad_prod = einsum("no,no->n", (grad_prod, G))
+
+                v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+
+                gv = einsum("n,no->no", (v, G))
+                gv = einsum("no,ni->oi", (gv, I))
+                gv = gv / n
+
+                bias_update = None
+                if m.bias is not None:
+                    grad_bias = m.bias.grad.data
+                    if self.steps % self.freq == 0:
+                        grad_prod_bias = einsum("o,no->n", (grad_bias, G))
+                        v = matmul(self.m_bias_Kernel[m], grad_prod_bias.unsqueeze(1)).squeeze()
+                        gv_bias = einsum('n,no->o', (v, G))
+                        gv_bias = gv_bias / n
+                        bias_update = (grad_bias - gv_bias) / damping
+                    else:
+                        bias_update = grad_bias
+
+                updates = (grad - gv)/damping, bias_update
+
+            elif classname == 'conv2d':
+                # print('conv2d grad shape:', grad.shape)
+                grad_ = torch.sum(grad, (-2,-1))
+                # print('grad_shape:', grad_.shape)
+                grad_reshape_rs = grad_.reshape(grad_.shape[0], -1)
+                grad_reshape = grad.reshape(grad.shape[0], -1)
+                if m.optimized == True:
+                    # print('=== optimized ===')
+                    I = self.m_I[m][1]
+                    G = self.m_G[m][1]
+                    # we have I = A + E
+                    # notice A is not repeated and this is the reduced version
+                    n = G.shape[0]
+                    NGD_inv = self.m_NGD_Kernel[m]
+
+                    # print('m:', m)
+                    A = self.m_I[m][2]
+                    E = self.m_I[m][3]
+                    U = self.m_I[m][4]
+                    V = self.m_I[m][5]
+
+                    # the new method computation for x1 = I * g ~ A * g_rs
+                    if m.stride[0] == 1:
+                        # x1_rs = einsum("nk,mk->nm", (A, grad_reshape_rs))
+                        x1_rs = torch.matmul(A, grad_reshape_rs.t())
+                        # e1 = einsum("vk,mk->vm", (V, grad_reshape))
+                        e1 = torch.matmul(V, grad_reshape.t())
+                        # e2 = einsum("nv,vm->nm", (U, e1))
+                        e2 = torch.matmul(U, e1)
+                        x1 = x1_rs + e2
+                        ## error:
+                        ## x1_rs_e = x1_rs + e2
+                        # err = torch.norm(x1 - x1_rs)/torch.norm(x1)
+                        # err2 = torch.norm(x1 - x1_rs_e)/torch.norm(x1)
+                        # print('err and err2: ', err, err2)
+                    else:
+                        x1 = einsum("nk,mk->nm", (I, grad_reshape))
+
+
+                    grad_prod = einsum("nm,nm->n", (x1, G))
+
+
+                    ### we have to replace this operation: gv = einsum("nm,nk->mk", (gv, I))
+                    ## I ~ A + U * V
+                    # A has dimension (batch, cin)
+                    # U and V have dimensions (cin, r) and (r, cout) where r is the rank parameter (default=1).
+
+                    
+                    v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+
+                    G_scaled = einsum("n,nm->nm", (v, G))
+                    if m.stride[0] == 1:
+                        # AG = einsum("nk,nm->mk", (A, G_scaled))
+                        AG = torch.matmul(G_scaled.t(), A)
+                        AG_expand = torch.repeat_interleave(AG, m.kernel_size[0] * m.kernel_size[1], dim=1)
+                        # aux_var = einsum("nr,nm->rm", (U, G_scaled))
+                        aux_var = torch.matmul(U.t(), G_scaled)
+                        # residu = einsum("rk,rm->mk", (V, aux_var))
+                        residu = torch.matmul(aux_var.t(), V)
+
+                        gv = AG_expand + residu
+                        
+                        ## Error:
+                        ## gv_stim = AG_expand + residu
+                        # err_gv = torch.norm(gv - gv_stim)/torch.norm(gv)
+                        # print('err_gv: ', err_gv)
+                    else:
+                        gv = einsum("nm,nk->mk", (G_scaled, I))
+
+                    gv = gv.view_as(grad)
+                    gv = gv / n
+
+                    bias_update = None
+                    if m.bias is not None:
+                        bias_update = m.bias.grad.data
+                    
+                    updates = (grad - gv)/damping, bias_update
+
+                
+            # return updates
 
     def _get_natural_grad_struct(self, m, damping):
         grad = m.weight.grad.data
@@ -340,7 +506,6 @@ class NGDStreamOptimizer(optim.Optimizer):
                     V = self.m_I[m][5]
 
                     # the new method computation for x1 = I * g ~ A * g_rs
-                    
                     if m.stride[0] == 1:
                         # x1_rs = einsum("nk,mk->nm", (A, grad_reshape_rs))
                         x1_rs = torch.matmul(A, grad_reshape_rs.t())
@@ -372,7 +537,7 @@ class NGDStreamOptimizer(optim.Optimizer):
                         v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
 
                     G_scaled = einsum("n,nm->nm", (v, G))
-                    if m.stride[0] == 1 and 1 == 2:
+                    if m.stride[0] == 1:
                         # AG = einsum("nk,nm->mk", (A, G_scaled))
                         AG = torch.matmul(G_scaled.t(), A)
                         AG_expand = torch.repeat_interleave(AG, m.kernel_size[0] * m.kernel_size[1], dim=1)
@@ -811,20 +976,23 @@ class NGDStreamOptimizer(optim.Optimizer):
             classname = m.__class__.__name__.lower()
             if self.steps % self.freq == 0:
                 self._update_inv(m)
-            v = self._get_natural_grad_struct(m, damping)
-            # v = self._get_natural_grad(m, damping)
+            # v = self._get_natural_grad_struct(m, damping)
+            v = self._get_natural_grad(m, damping)
             updates[m] = v
 
-            # index = self.index[m]
-            # st = self.grad_offset[index]
-            # end = self.grad_offset[index+1]
-            # grad = m.weight.grad.data
-            # if classname == 'conv2d':
-            #     grad = grad.reshape(grad.shape[0], -1)
+            index = self.index[m]
+            st = self.grad_offset[index]
+            end = self.grad_offset[index+1]
+            grad = m.weight.grad.data
+            if classname == 'conv2d':
+                grad = grad.reshape(grad.shape[0], -1)
+                grad_rs = torch.sum(grad, (-2,-1))
             # grad = einsum('oi->io', grad)
-            # self.grad_MEM[st:end] = torch.reshape(grad, [1,-1])
+            self.grad_MEM[st:end] = torch.reshape(grad, [1,-1])
+            self.grad_rs_MEM[st:end] = torch.reshape(grad, [1,-1])
 
         # self._get_natural_grad_all(updates, damping)
+        self._get_natural_grad_struct_all(updates, damping)
 
         # for m in self.modules:
         #     print(torch.linalg.norm(updates[m][0] - updates_org[m][0]))
