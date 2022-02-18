@@ -37,7 +37,7 @@ class ComputeI:
         L = I.shape[2]
         M = module.out_channels
         module.param_shapes = [N, K, L, M]
-        
+
         if reduce_sum == 'true':
             I = einsum("nkl->nk", I)
             if diag == 'true':

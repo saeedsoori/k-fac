@@ -1,7 +1,7 @@
 '''Train CIFAR10/CIFAR100 with PyTorch.'''
 import argparse
 import os
-from optimizers import (KFACOptimizer, SKFACOptimizer, EKFACOptimizer, KBFGSOptimizer, KBFGSLOptimizer, KBFGSL2LOOPOptimizer, KBFGSLMEOptimizer, NGDOptimizer, NGDStreamOptimizer)
+from optimizers import (KFACOptimizer, SKFACOptimizer, EKFACOptimizer, KBFGSOptimizer, KBFGSLOptimizer, KBFGSL2LOOPOptimizer, KBFGSLMEOptimizer, NGDOptimizer)
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -83,9 +83,9 @@ parser.add_argument('--memory_efficient', default='false', type=str)
 parser.add_argument('--trial', default='true', type=str)
 parser.add_argument('--super_opt', default='false', type=str)
 parser.add_argument('--reduce_sum', default='false', type=str)
-parser.add_argument('--perturb', default='false', type=str)
 parser.add_argument('--diag', default='false', type=str)
 parser.add_argument('--partial_backprop', default='false', type=str)
+parser.add_argument('--rand_svd', type=eval, default=False, choices=[True, False])
 
 # for adam optimizer
 parser.add_argument('--epsilon', default=1e-8, type=float)
@@ -99,6 +99,11 @@ parser.add_argument('--debug_mem', default='false', type=str)
 # for SKFAC optimizer
 parser.add_argument('--subsample', default='false', type=str)
 parser.add_argument('--num_ss_patches', default=0, type=int)
+
+# warmup learning rate
+parser.add_argument('--warmup', default='false', type=str)
+parser.add_argument('--warmup-epoch', default=5, type=int)
+parser.add_argument('--warmup-init-lr', default=0.01, type=float)
 
 args = parser.parse_args()
 
@@ -219,6 +224,7 @@ elif optim_name == 'exact_ngd':
       os.mkdir('exact')
 
 elif optim_name == 'kngd':
+    # SAEED: TODO fix batchnorm or remove it totally
     print('Test optimizer selected')
     optimizer = NGDOptimizer(net,
                               lr=args.learning_rate,
@@ -231,35 +237,8 @@ elif optim_name == 'kngd':
                               low_rank=args.low_rank,
                               super_opt=args.super_opt,
                               reduce_sum=args.reduce_sum,
-                              diag=args.diag)
-
-elif optim_name == 'ngd_stream':
-    # SAEED: TODO fix batchnorm or remove it totally
-    print('NGD Stream Optimizer selected')
-    optimizer = NGDStreamOptimizer(net,
-                              lr=args.learning_rate,
-                              momentum=args.momentum,
-                              damping=args.damping,
-                              kl_clip=args.kl_clip,
-                              weight_decay=args.weight_decay,
-                              freq=args.freq,
-                              gamma=args.gamma,
-                              low_rank=args.low_rank,
-                              super_opt=args.super_opt,
-                              reduce_sum=args.reduce_sum,
-                              perturb=args.perturb,
-                              diag=args.diag)
-
-  # perform a forward pass to get the dimensions
-    net.eval()
-    sample_input, sample_classe = next(iter(trainloader)) 
-    sample_output = net(sample_input.to(args.device))  
-    #### TODO: chane to 'cuda'
-    if args.device == 'cuda':
-      optimizer.initialize()
-    net.train()
-    # print('*'*1000)
-    # print(sample_output)
+                              diag=args.diag,
+                              rand_svd=args.rand_svd)
 
 elif optim_name == 'kbfgs':
     print('K-BFGS optimizer selected.')
@@ -470,7 +449,7 @@ def train(epoch):
             optimizer.step()
 
         ### new optimizer test
-        elif optim_name in ['kngd', 'ngd_stream'] :
+        elif optim_name in ['kngd'] :
             inputs, targets = inputs.to(args.device), targets.to(args.device)
             optimizer.zero_grad()
             outputs = net(inputs)
@@ -820,6 +799,80 @@ def test(epoch):
     test_loss = test_loss/(batch_idx + 1)
     return acc, test_loss
 
+def warmup(epoch):
+    torch.set_printoptions(precision=16)
+    print('=== Warmup ===')
+    print('\nEpoch: %d' % epoch)
+    net.train()
+    train_loss = 0
+    correct = 0
+    total = 0
+    step_st_time = time.time()
+    epoch_time = 0
+    print('\nKFAC/KBFGS damping: %f' % damping)
+    print('\nNGD damping: %f' % (damping))
+
+    warmup_lr = (args.learning_rate - args.warmup_init_lr) / (args.warmup_epoch - 1) * epoch + args.warmup_init_lr
+    desc = ('[%s][LR=%s] Loss: %.3f | Acc: %.3f%% (%d/%d)' %
+            (tag, warmup_lr, 0, 0, correct, total))
+
+    writer.add_scalar('train/lr', warmup_lr, epoch)
+
+    prog_bar = tqdm(enumerate(trainloader), total=len(trainloader), desc=desc, leave=True)
+    for batch_idx, (inputs, targets) in prog_bar:
+        ### new optimizer test
+        if optim_name in ['kngd'] :
+            inputs, targets = inputs.to(args.device), targets.to(args.device)
+            optimizer.zero_grad()
+            outputs = net(inputs)
+            loss = criterion(outputs, targets)
+            if  optimizer.steps % optimizer.freq == 0:
+                # compute true fisher
+                optimizer.acc_stats = True
+                with torch.no_grad():
+                    sampled_y = torch.multinomial(torch.nn.functional.softmax(outputs, dim=1),1).squeeze().to(args.device)
+                loss_sample = criterion(outputs, sampled_y)
+                loss_sample.backward(retain_graph=True)
+                optimizer.acc_stats = False
+                optimizer.zero_grad()  # clear the gradient for computing true-fisher.
+                if args.partial_backprop == 'true':
+                  idx = (sampled_y == targets) == False
+                  loss = criterion(outputs[idx,:], targets[idx])
+                  # print('extra:', idx.sum().item())
+            loss.backward()
+            optimizer.step()
+
+
+        train_loss += loss.item()
+        _, predicted = outputs.max(1)
+        total += targets.size(0)
+        correct += predicted.eq(targets).sum().item()
+        desc = ('[%s][LR=%s] Loss: %.3f | Acc: %.3f%% (%d/%d)' %
+                (tag, warmup_lr, train_loss / (batch_idx + 1), 100. * correct / total, correct, total))
+        prog_bar.set_description(desc, refresh=True)
+        if args.step_info == 'true' and (batch_idx % 50 == 0 or batch_idx == len(prog_bar) - 1):
+            step_saved_time = time.time() - step_st_time
+            epoch_time += step_saved_time
+            test_acc, test_loss = test(epoch)
+            TRAIN_INFO['train_acc'].append(float("{:.4f}".format(100. * correct / total)))
+            TRAIN_INFO['test_acc'].append(float("{:.4f}".format(test_acc)))
+            TRAIN_INFO['train_loss'].append(float("{:.4f}".format(train_loss/(batch_idx + 1))))
+            TRAIN_INFO['test_loss'].append(float("{:.4f}".format(test_loss)))
+            TRAIN_INFO['total_time'].append(float("{:.4f}".format(step_saved_time)))
+            if args.debug_mem == 'true':
+                TRAIN_INFO['memory'].append(torch.cuda.memory_reserved())
+            step_st_time = time.time()
+            net.train()
+
+    writer.add_scalar('train/loss', train_loss/(batch_idx + 1), epoch)
+    writer.add_scalar('train/acc', 100. * correct / total, epoch)
+    acc = 100. * correct / total
+    train_loss = train_loss/(batch_idx + 1)
+    if args.step_info == 'true':
+        TRAIN_INFO['epoch_time'].append(float("{:.4f}".format(epoch_time)))
+
+    return acc, train_loss
+
 def optimal_JJT(outputs, targets, batch_size, damping=1.0, alpha=0.95, low_rank='false', gamma=0.95, memory_efficient='false'):
     jac_list = 0
     vjp = 0
@@ -858,6 +911,10 @@ def main():
     if args.debug_mem == 'true':
       TRAIN_INFO['memory'].append(torch.cuda.memory_reserved())
     st_time = time.time()
+
+    if args.warmup:
+      for epoch in range(args.warmup_epoch):
+        train_acc, train_loss = warmup(epoch)
     for epoch in range(start_epoch, args.epoch):
         ep_st_time = time.time()
         train_acc, train_loss = train(epoch)
@@ -965,7 +1022,6 @@ def get_accuracy(data):
 
 def memory_cleanup(module):
     """Remove I/O stored by backpack during the forward pass.
-
     Deletes the attributes created by `hook_store_io` and `hook_store_shapes`.
     """
     # if self.mem_clean_up:
@@ -984,5 +1040,3 @@ def memory_cleanup(module):
 
 if __name__ == '__main__':
     main()
-
-

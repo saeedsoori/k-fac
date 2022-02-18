@@ -20,7 +20,8 @@ class NGDOptimizer(optim.Optimizer):
                  low_rank='true',
                  super_opt='false',
                  reduce_sum='false',
-                 diag='false'):
+                 diag='false',
+                 rand_svd = False):
         if lr < 0.0:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if momentum < 0.0:
@@ -38,12 +39,18 @@ class NGDOptimizer(optim.Optimizer):
         self.IHandler = ComputeI()
         self.GHandler = ComputeG()
         self.model = model
+        self.rank_all={}
+        self.rand_svd = rand_svd
+        self.U_r = {}
+        self.S_r = {}
+        self.V_r = {}
         self._prepare_model()
 
         self.steps = 0
         self.m_I = {}
         self.m_G = {}
         self.m_UV = {}
+        
         self.m_NGD_Kernel = {}
         self.m_bias_Kernel = {}
 
@@ -73,6 +80,7 @@ class NGDOptimizer(optim.Optimizer):
         print(self.model)
         print('NGD keeps the following modules:')
         for module in self.model.modules():
+            self.rank_all[module] = []
             classname = module.__class__.__name__
             if classname in self.known_modules:
                 self.modules.append(module)
@@ -80,6 +88,23 @@ class NGDOptimizer(optim.Optimizer):
                 module.register_backward_hook(self._save_grad_output)
                 print('(%s): %s' % (count, module))
                 count += 1
+                
+    # Define randomized SVD function
+    def rSVD(self, X,r,q,p):
+        # Step 1: Sample column space of X with P matrix
+        ny = X.shape[1]
+        P = torch.randn(ny,r+p).to(X.device)
+        Z = X @ P
+        for k in range(q):
+            Z = X @ (X.T @ Z)
+    
+        Q, R = torch.linalg.qr(Z,mode='reduced')
+        # Step 2: Compute SVD on projected Y = Q.T @ X
+        Y = Q.T @ X
+        UY, S, VT = torch.linalg.svd(Y,full_matrices=False)
+        U = Q @ UY
+
+        return U, S, VT
 
     def _update_inv(self, m):
         classname = m.__class__.__name__.lower()
@@ -95,8 +120,19 @@ class NGDOptimizer(optim.Optimizer):
             self.m_bias_Kernel[m] = bias_inv
 
             NGD_kernel = (II * GG) / n
-            NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
-            self.m_NGD_Kernel[m] = NGD_inv
+            if self.rand_svd:
+                # U, S, Vh = torch.linalg.svd(NGD_kernel, full_matrices=False)
+                U, S, Vh = self.rSVD(NGD_kernel, 50, 0, 20)
+                # cs = torch.cumsum(S, dim=0)
+                # cs_norm = cs / torch.sum(S)
+                self.U_r[m] = U
+                self.S_r[m] = inv(torch.diag(S) + self.damping * eye(S.shape[0]).to(II.device))
+                self.V_r[m] =  Vh
+            else:
+                NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
+
+            if not self.rand_svd:
+                self.m_NGD_Kernel[m] = NGD_inv
 
             self.m_I[m] = (None, self.m_I[m][1])
             self.m_G[m] = (None, self.m_G[m][1])
@@ -116,12 +152,20 @@ class NGDOptimizer(optim.Optimizer):
                         NGD_inv = torch.reciprocal(NGD_kernel + self.damping)
                     else:
                         NGD_kernel = II * GG / n
-                        NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
+                        if self.rand_svd:
+                            U, S, Vh = self.rSVD(NGD_kernel, 50, 0, 20)
+                            self.U_r[m] = U
+                            self.S_r[m] = inv(torch.diag(S) + self.damping * eye(S.shape[0]).to(II.device))
+                            self.V_r[m] =  Vh
+                        else:
+                            NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
+                        
                 else:
                     NGD_kernel = (einsum('nqlp->nq', II * GG)) / n
                     NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
 
-                self.m_NGD_Kernel[m] = NGD_inv
+                if not self.rand_svd:
+                    self.m_NGD_Kernel[m] = NGD_inv
 
                 self.m_I[m] = (None, self.m_I[m][1])
                 self.m_G[m] = (None, self.m_G[m][1])
@@ -165,7 +209,9 @@ class NGDOptimizer(optim.Optimizer):
                 self.m_I[m] = None, self.m_I[m][1]
                 self.m_G[m] = None, self.m_G[m][1]
                 torch.cuda.empty_cache()
-
+    
+    
+    
     def _get_natural_grad(self, m, damping):
         grad = m.weight.grad.data
         classname = m.__class__.__name__.lower()
@@ -175,11 +221,18 @@ class NGDOptimizer(optim.Optimizer):
             I = self.m_I[m][1]
             G = self.m_G[m][1]
             n = I.shape[0]
-            NGD_inv = self.m_NGD_Kernel[m]
+            if not self.rand_svd:
+                NGD_inv = self.m_NGD_Kernel[m]
             grad_prod = einsum("ni,oi->no", (I, grad))
             grad_prod = einsum("no,no->n", (grad_prod, G))
 
-            v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+            # v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+            if self.rand_svd:
+                f1 = matmul(self.V_r[m], grad_prod.unsqueeze(1))
+                f2 = matmul(self.S_r[m], f1)
+                v = matmul(self.U_r[m], f2).squeeze()
+            else:
+                v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
 
             gv = einsum("n,no->no", (v, G))
             gv = einsum("no,ni->oi", (gv, I))
@@ -206,7 +259,8 @@ class NGDOptimizer(optim.Optimizer):
                 I = self.m_I[m][1]
                 G = self.m_G[m][1]
                 n = I.shape[0]
-                NGD_inv = self.m_NGD_Kernel[m]
+                if not self.rand_svd:
+                    NGD_inv = self.m_NGD_Kernel[m]
 
                 if self.reduce_sum == 'true':
                     x1 = einsum("nk,mk->nm", (I, grad_reshape))
@@ -215,7 +269,12 @@ class NGDOptimizer(optim.Optimizer):
                     if self.diag == 'true':
                         v = NGD_inv * grad_prod
                     else:
-                        v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
+                        if self.rand_svd:
+                            f1 = matmul(self.V_r[m], grad_prod.unsqueeze(1))
+                            f2 = matmul(self.S_r[m], f1)
+                            v = matmul(self.U_r[m], f2).squeeze()
+                        else:
+                            v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
 
                     gv = einsum("n,nm->nm", (v, G))
                     gv = einsum("nm,nk->mk", (gv, I))
@@ -341,20 +400,20 @@ class NGDOptimizer(optim.Optimizer):
                 if p.grad is None:
                     continue
                 d_p = p.grad.data
-                
-                # if momentum != 0:
-                #     param_state = self.state[p]
-                #     if 'momentum_buffer' not in param_state:
-                #         buf = param_state['momentum_buffer'] = torch.zeros_like(p.data)
-                #         buf.mul_(momentum).add_(d_p)
-                #     else:
-                #         buf = param_state['momentum_buffer']
-                #         buf.mul_(momentum).add_(1, d_p)
-                #     d_p.copy_(buf)
 
                 # if weight_decay != 0 and self.steps >= 10 * self.freq:
                 if weight_decay != 0:
                     d_p.add_(weight_decay, p.data)
+
+                if momentum != 0:
+                    param_state = self.state[p]
+                    if 'momentum_buffer' not in param_state:
+                        buf = param_state['momentum_buffer'] = torch.zeros_like(p.data)
+                        buf.mul_(momentum).add_(d_p)
+                    else:
+                        buf = param_state['momentum_buffer']
+                        buf.mul_(momentum).add_(1, d_p)
+                    d_p.copy_(buf)
 
                 p.data.add_(-group['lr'], d_p)
                 # print('d_p:', d_p.shape)
@@ -371,6 +430,12 @@ class NGDOptimizer(optim.Optimizer):
                 self._update_inv(m)
             v = self._get_natural_grad(m, damping)
             updates[m] = v
+        
+        # if self.steps % self.freq == 0:
+        #     for m in self.modules:
+        #         print(m)
+        #     for m in self.modules:
+        #         print(self.rank_all[m])
         self._kl_clip_and_update_grad(updates, lr)
 
         self._step(closure)

@@ -6,7 +6,6 @@ from .kbfgsl import KBFGSLOptimizer
 from .kbfgsl_2loop import KBFGSL2LOOPOptimizer
 from .kbfgsl_mem_eff import KBFGSLMEOptimizer
 from .ngd import NGDOptimizer
-from .ngd_stream import NGDStreamOptimizer
 
 
 def get_optimizer(name):
@@ -26,7 +25,5 @@ def get_optimizer(name):
         return KBFGSLMEOptimizer
     elif name == 'ngd':
         return NGDOptimizer
-    elif name == 'ngd_stream':
-        return NGDStreamOptimizer
     else:
         raise NotImplementedError

@@ -1,6 +1,6 @@
 from __future__ import absolute_import
 
-__all__ = ['ResNet34']
+__all__ = ['ResNet32']
 
 '''ResNet in PyTorch.
 Reference:
@@ -11,6 +11,15 @@ Reference:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+class LambdaLayer(nn.Module):
+    def __init__(self, lambd):
+        super(LambdaLayer, self).__init__()
+        self.lambd = lambd
+
+    def forward(self, x):
+        return self.lambd(x)
 
 
 class BasicBlock(nn.Module):
@@ -27,11 +36,13 @@ class BasicBlock(nn.Module):
 
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion*planes:
-            self.shortcut = nn.Sequential(
-                nn.Conv2d(in_planes, self.expansion*planes,
-                          kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(self.expansion*planes)
-            )
+            # self.shortcut = nn.Sequential(
+            #     nn.Conv2d(in_planes, self.expansion*planes,
+            #               kernel_size=1, stride=stride, bias=False),
+            #     nn.BatchNorm2d(self.expansion*planes)
+            # )
+            self.shortcut = LambdaLayer(lambda x:
+                                        F.pad(x[:, :, ::2, ::2], (0, 0, 0, 0, planes//4, planes//4), "constant", 0))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -105,5 +116,5 @@ class ResNet(nn.Module):
         return out
 
 
-def ResNet34(**kwargs):
+def ResNet32(**kwargs):
     return ResNet(BasicBlock, [5, 5, 5])
