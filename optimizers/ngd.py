@@ -41,7 +41,7 @@ class NGDOptimizer(optim.Optimizer):
         self.model = model
         self.rank_all={}
         self.rand_svd = rand_svd
-        self.U_r = {}
+
         self.S_r = {}
         self.V_r = {}
         self._prepare_model()
@@ -102,9 +102,11 @@ class NGDOptimizer(optim.Optimizer):
         # Step 2: Compute SVD on projected Y = Q.T @ X
         Y = Q.T @ X
         UY, S, VT = torch.linalg.svd(Y,full_matrices=False)
-        U = Q @ UY
+        # note: should reconstruct U from UY in the original algorithm
+        # with U = Q @ UY. Here, since X is symmetry, U = V,
+        # so we can reuse V and disregard U
 
-        return U, S, VT
+        return None, S, VT
 
     def _update_inv(self, m):
         classname = m.__class__.__name__.lower()
@@ -125,7 +127,6 @@ class NGDOptimizer(optim.Optimizer):
                 U, S, Vh = self.rSVD(NGD_kernel, 50, 0, 20)
                 # cs = torch.cumsum(S, dim=0)
                 # cs_norm = cs / torch.sum(S)
-                self.U_r[m] = U
                 self.S_r[m] = inv(torch.diag(S) + self.damping * eye(S.shape[0]).to(II.device))
                 self.V_r[m] =  Vh
             else:
@@ -153,8 +154,7 @@ class NGDOptimizer(optim.Optimizer):
                     else:
                         NGD_kernel = II * GG / n
                         if self.rand_svd:
-                            U, S, Vh = self.rSVD(NGD_kernel, 50, 0, 20)
-                            self.U_r[m] = U
+                            _, S, Vh = self.rSVD(NGD_kernel, 50, 0, 20)
                             self.S_r[m] = inv(torch.diag(S) + self.damping * eye(S.shape[0]).to(II.device))
                             self.V_r[m] =  Vh
                         else:
@@ -230,7 +230,8 @@ class NGDOptimizer(optim.Optimizer):
             if self.rand_svd:
                 f1 = matmul(self.V_r[m], grad_prod.unsqueeze(1))
                 f2 = matmul(self.S_r[m], f1)
-                v = matmul(self.U_r[m], f2).squeeze()
+                v = matmul(self.V_r[m].t(), f2).squeeze()
+
             else:
                 v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
 
@@ -272,7 +273,7 @@ class NGDOptimizer(optim.Optimizer):
                         if self.rand_svd:
                             f1 = matmul(self.V_r[m], grad_prod.unsqueeze(1))
                             f2 = matmul(self.S_r[m], f1)
-                            v = matmul(self.U_r[m], f2).squeeze()
+                            v = matmul(self.V_r[m].t(), f2).squeeze()
                         else:
                             v = matmul(NGD_inv, grad_prod.unsqueeze(1)).squeeze()
 
