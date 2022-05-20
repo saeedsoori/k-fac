@@ -13,16 +13,16 @@ from utils.network_utils import get_network
 from utils.data_utils import get_dataloader
 from torchsummary import summary
 
-from backpack import backpack, extend
-from backpack.extensions import FisherBlock, FisherBlockEff, BatchGrad
-from backpack.utils.conv import unfold_func
+# from backpack import backpack, extend
+# from backpack.extensions import FisherBlock, FisherBlockEff, BatchGrad
+# from backpack.utils.conv import unfold_func
 import math
 import time
 import copy
 import matplotlib.pylab as plt
 
 from torch import einsum, matmul, eye
-from torch.linalg import inv
+# from torch.linalg import inv
 import numpy as np
 # for REPRODUCIBILITY
 # torch.manual_seed(0)
@@ -102,7 +102,7 @@ parser.add_argument('--num_ss_patches', default=0, type=int)
 
 # warmup learning rate
 parser.add_argument('--warmup', default='false', type=str)
-parser.add_argument('--warmup-epoch', default=5, type=int)
+parser.add_argument('--warmup-epoch', default=0, type=int)
 parser.add_argument('--warmup-init-lr', default=0.01, type=float)
 
 args = parser.parse_args()
@@ -428,7 +428,7 @@ def train(epoch):
 
               J = torch.cat(batch_grad, 1)
               fisher = torch.matmul(J.t(), J) / args.batch_size
-              inv = torch.linalg.inv(fisher + damping * torch.eye(fisher.size(0)).to(fisher.device))
+              inv = torch.inverse(fisher + damping * torch.eye(fisher.size(0)).to(fisher.device))
               # clean the gradient to compute the true fisher
               optimizer.zero_grad()
 
@@ -738,8 +738,8 @@ def train(epoch):
               G = optimizer.m_gg[m]
               A = optimizer.m_aa[m]
 
-              H_g = torch.linalg.inv(G + math.sqrt(damping) * torch.eye(G.size(0)).to(G.device))
-              H_a = torch.linalg.inv(A + math.sqrt(damping) * torch.eye(A.size(0)).to(A.device))
+              H_g = torch.inverse(G + math.sqrt(damping) * torch.eye(G.size(0)).to(G.device))
+              H_a = torch.inverse(A + math.sqrt(damping) * torch.eye(A.size(0)).to(A.device))
 
               end = m.weight.data.reshape(1, -1).size(1)
               kfac_inv = torch.kron(H_a, H_g)[:end,:end]

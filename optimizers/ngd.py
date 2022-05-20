@@ -5,7 +5,7 @@ import torch.optim as optim
 
 from utils.ngd_utils import (ComputeI, ComputeG)
 from torch import einsum, eye, matmul, cumsum
-from torch.linalg import inv, svd
+# from torch.linalg import inv, svd
 
 class NGDOptimizer(optim.Optimizer):
     def __init__(self,
@@ -118,7 +118,7 @@ class NGDOptimizer(optim.Optimizer):
 
             ### bias kernel is GG (II = all ones)
             bias_kernel = GG / n
-            bias_inv = inv(bias_kernel + self.damping * eye(n).to(GG.device))
+            bias_inv = torch.inverse(bias_kernel + self.damping * eye(n).to(GG.device))
             self.m_bias_Kernel[m] = bias_inv
 
             NGD_kernel = (II * GG) / n
@@ -155,14 +155,14 @@ class NGDOptimizer(optim.Optimizer):
                         NGD_kernel = II * GG / n
                         if self.rand_svd:
                             _, S, Vh = self.rSVD(NGD_kernel, 50, 0, 20)
-                            self.S_r[m] = inv(torch.diag(S) + self.damping * eye(S.shape[0]).to(II.device))
+                            self.S_r[m] = torch.inverse(torch.diag(S) + self.damping * eye(S.shape[0]).to(II.device))
                             self.V_r[m] =  Vh
                         else:
-                            NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
+                            NGD_inv = torch.inverse(NGD_kernel + self.damping * eye(n).to(II.device))
                         
                 else:
                     NGD_kernel = (einsum('nqlp->nq', II * GG)) / n
-                    NGD_inv = inv(NGD_kernel + self.damping * eye(n).to(II.device))
+                    NGD_inv = torch.inverse(NGD_kernel + self.damping * eye(n).to(II.device))
 
                 if not self.rand_svd:
                     self.m_NGD_Kernel[m] = NGD_inv
@@ -189,7 +189,7 @@ class NGDOptimizer(optim.Optimizer):
                 ### low-rank approximation of Jacobian
                 if self.low_rank == 'true':
                     # print('=== low rank ===')
-                    V, S, U = svd(AX_.T, full_matrices=False)
+                    V, S, U = torch.svd(AX_.T, full_matrices=False)
                     U = U.t()
                     V = V.t()
                     cs = cumsum(S, dim = 0)
